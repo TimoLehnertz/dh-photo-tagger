@@ -150,11 +150,13 @@ Live:
   (`DH-Photo-Tagger-macOS.dmg`, `-Linux-x86_64.AppImage`, `-Linux-amd64.deb`, `-Linux-x86_64.tar.gz`).
   The web app links to `releases/latest/download/<name>`.
 
-**Not yet verified:** the first run of `desktop.yml` (triggered by `c51000f`). The old `macos.yml`
-built fine on GitHub. Locally (Ubuntu container) the AppImage and .deb built, and the AppImage launched
-under Xvfb. Still to check: macOS + Linux jobs green, the `publish` job created the `latest`
-release (it force-pushes tag `latest`; needs `contents: write`, already set), and the download
-links in the web app resolve.
+**Verified in the second cloud session (2026-10-05):** `desktop.yml` run 2 (commit `c7eb331`) is green
+across all three jobs (macos, linux, publish). Run 1 (`c51000f`) was cancelled by the concurrency group
+once `c7eb331` was pushed, so nothing is wrong there. The `latest` release exists, the API reports it as the
+repo's latest release, and it carries all four assets under the names `src/lib/downloads.ts` links to
+(dmg 6.3 MB, AppImage 82 MB, deb 3.3 MB, tar.gz 3.2 MB). `npm test` (41) and `npm run check` still pass.
+Fetching the Pages site or the download redirects directly wasn't possible from the container (the egress
+proxy blocks it). The Pages deploy for `c7eb331` succeeded.
 
 Verified before handoff:
 - `npm test` (41 vitest tests), `npm run check`, `cargo test` (6 tests).
