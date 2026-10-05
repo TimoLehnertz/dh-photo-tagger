@@ -24,7 +24,9 @@
       <span class="err" title={scan.error}>failed</span>
     {/if}
   {/if}
-  <label class="auto"><input type="checkbox" bind:checked={app.autoReadNumbers} /> auto</label>
+  <label class="auto" title="Read the numbers of all photos in the background, the one you are viewing first">
+    <input type="checkbox" bind:checked={app.autoReadNumbers} /> all photos
+  </label>
 </div>
 
 <style>

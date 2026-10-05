@@ -196,3 +196,11 @@ when the reading confidence is >= 0.5; the UI marks numbers that are a registere
 Findings on the 31 downscaled samples (1200 px): bibs are small helmet stickers. "386" (Owen Fox) in 0380 is read
 at 0.99; stickers of ~20 px (0360 "317", 0549) are not legible at that size, and upscaling only adds noise. Real
 recall needs a test on full-size originals, where large images are also scanned in tiles.
+
+Speed (2026-10-05): `bibReader.ts` runs a pool of workers. On the web, `public/coi-serviceworker.js` (registered
+in `main.ts`, production only, with a 3 s fallback) adds COOP/COEP so the page is cross-origin isolated and
+onnxruntime can use threads; the dev server sets the headers directly. The desktop app is not isolated (asset
+protocol images would need CORP headers; untested on macOS), so it runs 2–3 single-threaded workers in parallel.
+onnxruntime starts its threads with the worker script itself (`self.name` = "em-pthread…"), so
+`bibs.worker.ts` imports the runtime eagerly and only registers its job handler outside those threads.
+Measured on 4 cores: 31 sample photos in ~20–25 s in the background (before: one at a time, ~1.1 s each).

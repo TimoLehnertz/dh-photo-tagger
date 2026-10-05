@@ -5,8 +5,9 @@ import { photoFromScan, photosFromFiles, sortPhotos, type Photo } from "./photos
 import { fileSrc, isTauri, pickFolder, readTextInFolder, renameInFolder, scanFolder, writeTextInFolder } from "./platform";
 import { captureDateRange, eventsOverlapping } from "./events";
 import { videoPoster } from "./video";
+import { untrack } from "svelte";
 import type { TextHit } from "./bibs";
-import { readPhotoText } from "./bibReader";
+import { POOL_SIZE, readPhotoText } from "./bibReader";
 
 /** Start-number reading state of one photo. */
 export type NumberScan = { status: "running"; progress: number } | { status: "done"; hits: TextHit[] } | { status: "error"; error: string };
@@ -124,9 +125,12 @@ class AppState {
     this.raceTo = s.raceTo;
 
     $effect.root(() => {
+      // Background scanning: with "auto" on, every photo is read; the one being viewed goes first.
       $effect(() => {
-        const p = this.selected;
-        if (this.autoReadNumbers && p && p.kind !== "video" && !this.numberScans.has(p.key)) void this.readNumbers(p);
+        if (!this.autoReadNumbers) return;
+        void this.selectedKey;
+        void this.photos.length;
+        untrack(() => this.pumpScans());
       });
       $effect(() => {
         saveJson(SETTINGS_KEY, {
@@ -310,6 +314,38 @@ class AppState {
   private setScan(key: string, scan: NumberScan) {
     this.numberScans = new Map(this.numberScans).set(key, scan);
   }
+
+  #scansRunning = 0;
+
+  /** Photos that background scanning still has to read, the viewed one first. */
+  private nextToScan(): Photo | undefined {
+    const todo = (p: Photo | null | undefined) => !!p && p.kind !== "video" && !this.numberScans.has(p.key);
+    if (todo(this.selected)) return this.selected!;
+    return this.photos.find(todo);
+  }
+
+  /** Starts reading photos until the worker pool is busy. */
+  private pumpScans() {
+    while (this.autoReadNumbers && this.#scansRunning < POOL_SIZE) {
+      const p = this.nextToScan();
+      if (!p) return;
+      this.#scansRunning++;
+      void this.readNumbers(p).finally(() => {
+        this.#scansRunning--;
+        this.pumpScans();
+      });
+    }
+  }
+
+  /** How far background scanning has got (photos only). */
+  scanProgress = $derived.by(() => {
+    const images = this.photos.filter((p) => p.kind !== "video");
+    const done = images.filter((p) => {
+      const s = this.numberScans.get(p.key);
+      return s && s.status !== "running";
+    }).length;
+    return { done, total: images.length };
+  });
 
   /** Reads the text in a photo locally and keeps the start-number candidates. */
   async readNumbers(photo: Photo, force = false) {

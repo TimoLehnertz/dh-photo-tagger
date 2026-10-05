@@ -28,8 +28,9 @@ const UNCLIP_RATIO = 1.6;
 const REC_HEIGHT = 48;
 /** Images larger than DET_SIZE × this are also scanned in tiles, so small helmet stickers keep their detail. */
 const TILE_FROM = 1.5;
-/** Readings below this confidence are not offered as start numbers. */
+/** Readings below this confidence are not offered as start numbers; single digits are misread easily. */
 const MIN_NUMBER_SCORE = 0.5;
+const MIN_SINGLE_DIGIT_SCORE = 0.85;
 
 interface Engine {
   ort: Ort;
@@ -40,12 +41,18 @@ interface Engine {
 }
 
 let enginePromise: Promise<Engine> | null = null;
+let threads = 1;
+
+/** Threads onnxruntime may use (only effective in a cross-origin-isolated page); set before the first run. */
+export function setThreads(n: number) {
+  threads = Math.max(1, Math.floor(n));
+}
 
 /** Loads the runtime and both models (once). */
 export function loadEngine(): Promise<Engine> {
   enginePromise ??= (async () => {
     const ort = await import("onnxruntime-web/wasm");
-    ort.env.wasm.numThreads = globalThis.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 1) : 1;
+    ort.env.wasm.numThreads = globalThis.crossOriginIsolated ? threads : 1;
     const opts: InferenceSession.SessionOptions = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
     const [det, rec, keysText] = await Promise.all([
       ort.InferenceSession.create(`${BASE}det.onnx`, opts),
@@ -267,7 +274,8 @@ export async function readText(src: Source, onProgress?: (done: number, total: n
       if (res.score > best.score) best = res;
     }
     if (!best.text) continue;
-    hits.push({ text: best.text, numbers: best.score >= MIN_NUMBER_SCORE ? numbersIn(best.text) : [], box: b, score: best.score });
+    const numbers = numbersIn(best.text).filter((n) => best.score >= (n.length === 1 ? MIN_SINGLE_DIGIT_SCORE : MIN_NUMBER_SCORE));
+    hits.push({ text: best.text, numbers, box: b, score: best.score });
   }
   onProgress?.(crops.length + 1, crops.length + 1);
   return hits;

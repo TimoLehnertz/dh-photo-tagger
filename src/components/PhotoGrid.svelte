@@ -16,6 +16,13 @@
     return `${pad(w.hour)}:${pad(w.minute)}:${pad(w.second)}`;
   }
 
+  /** Detected start numbers that belong to an athlete of the selected events. */
+  function bibsOn(p: Photo): string[] {
+    const scan = app.numberScans.get(p.key);
+    if (scan?.status !== "done") return [];
+    return [...new Set(scan.hits.flatMap((h) => h.numbers))].filter((n) => app.athletesWithBib(n).length);
+  }
+
   function pickedNames(p: Photo) {
     return p.picks.map((id, i) => app.athlete(id)?.name ?? p.pickNames[i]?.replace(/-/g, " ") ?? id);
   }
@@ -39,6 +46,9 @@
   </div>
   <div class="stats muted">
     {app.stats.total} files · {app.stats.tagged} tagged
+    {#if app.autoReadNumbers && app.scanProgress.total}
+      · numbers {app.scanProgress.done < app.scanProgress.total ? `${app.scanProgress.done}/${app.scanProgress.total}` : "read"}
+    {/if}
   </div>
 
   <div class="grid">
@@ -54,6 +64,9 @@
           {/if}
           {#if p.kind === "video"}
             <span class="badge mono">▶ {p.durationMs != null ? formatDuration(p.durationMs) : "video"}</span>
+          {/if}
+          {#if bibsOn(p).length}
+            <span class="bibs mono" title="Start numbers found in the photo">{bibsOn(p).map((n) => `#${n}`).join(" ")}</span>
           {/if}
           {#if p.wall}
             <span class="time mono">{formatWallClock(p.wall)}</span>
@@ -80,6 +93,7 @@
   .tabs button { border: none; background: none; color: var(--muted); padding: 4px 8px; }
   .tabs .spacer { flex: 1; }
   .stats { font-size: 12px; padding: 6px 12px 0; }
+  .bibs { position: absolute; left: 4px; top: 4px; background: var(--accent); color: #111; font-weight: 700; padding: 1px 5px; border-radius: 4px; font-size: 11px; }
   .tabs button.active { color: var(--text); background: var(--panel-2); }
   .grid {
     flex: 1;

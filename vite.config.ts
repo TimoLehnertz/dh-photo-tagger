@@ -49,7 +49,9 @@ export default defineConfig({
   define: { __REPO__: JSON.stringify(repo) },
   plugins: [svelte(), ocrAssets()],
   clearScreen: false,
-  server: { port: 5173, strictPort: true },
+  // Cross-origin isolation lets start-number reading use several threads (in production the
+  // service worker in public/coi-serviceworker.js adds these headers).
+  server: { port: 5173, strictPort: true, headers: { "Cross-Origin-Opener-Policy": "same-origin", "Cross-Origin-Embedder-Policy": "require-corp" } },
   envPrefix: ["VITE_", "TAURI_ENV_"],
   optimizeDeps: { exclude: ["onnxruntime-web"] },
   build: {
