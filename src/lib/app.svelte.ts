@@ -5,11 +5,9 @@ import {
   clearWinner,
   fitOffsetToPicks,
   rankCandidates,
-  suggestOffset,
   type Athlete,
   type Candidate,
   type MatchModel,
-  type OffsetSuggestion,
 } from "./matching";
 import { athleteLabel, parseSidecar, resolveOriginals, SIDECAR_NAME, taggedFileName, type Sidecar } from "./naming";
 import { photoFromScan, photosFromFiles, sortPhotos, type Photo } from "./photos";
@@ -106,7 +104,6 @@ class AppState {
   folder = $state<string | null>(null);
   busy = $state<string | null>(null);
   notice = $state<{ kind: "info" | "error"; text: string } | null>(null);
-  lastSuggestion = $state<OffsetSuggestion | null>(null);
   /** Playback position (ms into the clip) of the selected video, for highlighting who's on course. */
   playheadMs = $state<number | null>(null);
   /** Asks the video player to jump; `nonce` makes repeated requests for the same spot fire. */
@@ -443,18 +440,6 @@ class AppState {
   }
 
   // ---- clock offset ------------------------------------------------------------------------
-
-  autoOffset() {
-    if (!this.model) return;
-    const s = suggestOffset(this.#rawSpans(), this.model.windows, this.disciplineSet);
-    this.lastSuggestion = s;
-    if (!s || s.matched === 0) {
-      this.notify("info", "No clock offset within ±6 h puts any photo or clip inside a run. Check the event, disciplines and time zone.");
-      return;
-    }
-    this.offsetMs = s.offsetMs;
-    this.persistFolderMeta();
-  }
 
   /** Re-derives the offset from photos the user already confirmed. */
   fitToPicks() {

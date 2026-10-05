@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventData } from "./api";
-import { bestWindowFor, buildMatchModel, clearWinner, windowScore, expectedPassMs, fitOffsetToPicks, rankCandidates, suggestOffset, type RunWindow } from "./matching";
+import { bestWindowFor, buildMatchModel, clearWinner, windowScore, expectedPassMs, fitOffsetToPicks, rankCandidates, type RunWindow } from "./matching";
 import { parseExifDateTime, wallTimeToUtcMs } from "./time";
 import fixture from "./fixtures/asu26.json";
 import exif from "../../test-images/exif.json";
@@ -45,30 +45,6 @@ describe("expectedPassMs", () => {
   });
 });
 
-describe("suggestOffset", () => {
-  it("finds the sample camera's clock error (~36 min fast)", () => {
-    const s = suggestOffset(photoMs, model.windows, skate)!;
-    expect(s.offsetMs).toBeLessThan(-33 * 60_000);
-    expect(s.offsetMs).toBeGreaterThan(-39 * 60_000);
-    expect(s.matched).toBeGreaterThanOrEqual(25);
-    // Uncorrected, very few photos fall inside a run.
-    const inside = photoMs.filter((t) => rankCandidates(t, model, { disciplines: skate, position: null, beforeMs: 0, afterMs: 0 }).some((c) => c.score > 0.99));
-    expect(inside.length).toBeLessThan(10);
-  });
-  it("recovers a synthetic offset", () => {
-    const truth = model.windows.filter((w) => w.discipline === "skateboarding").slice(0, 40).map((w) => (w.startMs + w.endMs) / 2);
-    const shifted = truth.map((t) => t + 17 * 60_000);
-    const s = suggestOffset(shifted, model.windows, skate)!;
-    expect(s.matched).toBe(40);
-    // Overlapping riders make a band of offsets equally good; it should still be within ~2 min.
-    expect(Math.abs(s.offsetMs + 17 * 60_000)).toBeLessThan(120_000);
-  });
-  it("returns null without data", () => {
-    expect(suggestOffset([], model.windows, skate)).toBeNull();
-    expect(suggestOffset(photoMs, model.windows, new Set())).toBeNull();
-  });
-});
-
 describe("rankCandidates", () => {
   it("ranks the rider whose run contains the photo first", () => {
     const w = model.windows.find((w) => w.discipline === "skateboarding" && w.splitMs !== null)!;
@@ -79,8 +55,8 @@ describe("rankCandidates", () => {
     expect(c[0].runFraction).toBeGreaterThan(0.3);
   });
   it("lists several riders on course when position is unknown", () => {
-    const s = suggestOffset(photoMs, model.windows, skate)!;
-    const counts = photoMs.map((t) => rankCandidates(t + s.offsetMs, model, { disciplines: skate, position: null, beforeMs: 15_000, afterMs: 15_000 }).filter((c) => c.score > 0.99).length);
+    const offsetMs = -2_064_000; // the sample camera is ~34 min fast
+    const counts = photoMs.map((t) => rankCandidates(t + offsetMs, model, { disciplines: skate, position: null, beforeMs: 15_000, afterMs: 15_000 }).filter((c) => c.score > 0.99).length);
     expect(Math.max(...counts)).toBeGreaterThanOrEqual(3);
   });
   it("respects the discipline filter", () => {
@@ -105,7 +81,7 @@ describe("bestWindowFor", () => {
   // her nearest recorded run is Q2, about 2.5 h later.
   const lisa = [...model.athletes.values()].find((a) => a.lastName === "Peters")!.profileId;
   const i = (exif as { file: string }[]).findIndex((e) => e.file.endsWith("-0590.jpg"));
-  const t = photoMs[i] - 2_064_000; // auto-detected offset -0:34:24
+  const t = photoMs[i] - 2_064_000; // the sample camera is ~34 min fast
   it("falls back to the nearest run without a limit", () => {
     expect(bestWindowFor(lisa, t, model)?.label).toMatch(/Q2/i);
   });
@@ -153,15 +129,6 @@ describe("video clips (time spans)", () => {
     const c = rankCandidates(clip, model, { ...opts, position: 0.5 }, 50).find((c) => c.window === w)!;
     expect(c.score).toBe(1);
     expect(c.clipOffsetMs).toBe(12_000);
-  });
-
-  it("finds the clock offset with clips as well as photos", () => {
-    // Clips spread over the whole day, as real footage is (session gaps make the offset unambiguous).
-    const runs = model.windows.filter((w) => w.discipline === "skateboarding").filter((_, i) => i % 6 === 0).slice(0, 30);
-    const clips = runs.map((w) => ({ startMs: w.startMs + 20 * 60_000 - 5_000, durationMs: 10_000 }));
-    const s = suggestOffset(clips, model.windows, skate)!;
-    expect(s.matched).toBe(30);
-    expect(Math.abs(s.offsetMs + 20 * 60_000)).toBeLessThan(120_000);
   });
 
   it("fits the offset to a tagged clip", () => {

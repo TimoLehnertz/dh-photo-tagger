@@ -34,12 +34,14 @@ Always the newest build of `main` (also linked from the web app):
    timing data overlaps the photo times are marked "✓ timing matches your photos", and if exactly one does, it
    is selected for you. Untick the filter to see all events.
 2. Check the **event** and tick the **disciplines** to match (Skateboard / Inline / Street luge).
-3. Press **Auto-detect** next to *Clock offset*. Camera clocks are often several minutes off. (The sample
-   camera was about 35 min fast.) Auto-detect finds the offset that puts the most photos inside a run.
+3. Set the **Clock offset** to how far the camera clock was off: type it (e.g. `-34:24`) or use the
+   ±1h / ±1m / ±5s buttons. Camera clocks are often several minutes off. (The sample camera was about
+   34 min fast, so its offset is `-0:34:24`.) The offset is never guessed; it only changes when you set it.
 4. Click a photo to see it large (scroll or double-click to zoom) next to the riders who were on course at that
    moment. Click a rider, or press `1`–`9`, to tag them. `←`/`→` moves between photos; `Enter` accepts the
    suggestion and moves on.
-5. Once a few photos are tagged with a single rider, **Fit to tagged** refines the offset from them.
+5. Once a few photos are tagged with a single rider, **Fit to tagged** refines the offset from them. Tags whose
+   rider has no recorded run within 15 min of the photo are skipped.
    If you know roughly where you stood on the course, set **Your position**. Riders are then ranked by when
    they should have passed you rather than just "on course".
 6. **Match window** sets how long before a run starts and after it finishes (in seconds) a photo still counts
@@ -53,7 +55,7 @@ MP4, MOV and M4V clips are supported. The app reads the recording time and lengt
 header (only a few hundred bytes, so even huge files load instantly). A clip covers a span of time, so every
 rider on course at any point during it is a candidate. Each candidate shows **when in the clip** they appear
 (or pass your position), and **▸ 0:14** jumps the player there. While the clip plays, riders on course at
-the playhead are highlighted. Clips also count for *Auto-detect* and *Fit to tagged*.
+the playhead are highlighted. Clips also count for *Fit to tagged*.
 
 Cameras disagree about video timestamps, so the **Video time** setting (shown once a clip is loaded) lets you
 choose:

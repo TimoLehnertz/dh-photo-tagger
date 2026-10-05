@@ -130,7 +130,7 @@
               Files stay on your computer — nothing is uploaded.
             {/if}
           </li>
-          <li>Press <strong>Auto-detect</strong> to correct the camera clock, then confirm riders for each photo or clip.</li>
+          <li>Set the <strong>Clock offset</strong> to how far the camera clock was off, then confirm riders for each photo or clip.</li>
         </ol>
         {#if isTauri}
           <button class="primary" onclick={() => app.openFolder()}>Open folder…</button>

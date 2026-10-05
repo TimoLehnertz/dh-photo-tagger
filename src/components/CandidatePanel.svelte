@@ -147,7 +147,7 @@
       </ul>
     {:else if photo.wall}
       <p class="muted pad">
-        No rider was on course {isVideo ? "during this clip" : "at this time"}. Try “Auto-detect” for the clock offset, a wider match window, or other disciplines.
+        No rider was on course {isVideo ? "during this clip" : "at this time"}. Check the clock offset, try a wider match window, or other disciplines.
       </p>
     {/if}
 

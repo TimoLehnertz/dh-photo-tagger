@@ -126,17 +126,15 @@
 
     <label class="field" title="Added to every photo's capture time. Accepts +h:mm:ss, -35:30 (mm:ss), 90 (s), -1h30m.">
       <span>Clock offset</span>
+      <button class="nudge" onclick={() => app.setOffset(app.offsetMs - 3_600_000)} title="−1 hour">−1h</button>
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs - 60_000)} title="−1 minute">−1m</button>
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs - 5_000)} title="−5 seconds">−5s</button>
       <input class="mono offset" class:invalid={offsetInvalid} bind:value={offsetText} onchange={commitOffset} onkeydown={(e) => e.key === "Enter" && commitOffset()} size="9" />
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs + 5_000)} title="+5 seconds">+5s</button>
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs + 60_000)} title="+1 minute">+1m</button>
+      <button class="nudge" onclick={() => app.setOffset(app.offsetMs + 3_600_000)} title="+1 hour">+1h</button>
     </label>
-    <button onclick={() => app.autoOffset()} disabled={!app.model || !app.photos.length} title="Find the offset that puts the most photos inside a run">Auto-detect</button>
     <button onclick={() => app.fitToPicks()} disabled={!app.model || !app.stats.tagged} title="Refine the offset using the photos you already tagged with one rider">Fit to tagged</button>
-    {#if app.lastSuggestion}
-      <span class="muted small">{app.lastSuggestion.matched}/{app.lastSuggestion.total} in a run</span>
-    {/if}
 
     <label class="field position" title="Where you stood on the course. Unknown = any moment during a run counts. Set it to rank riders by when they should have passed you.">
       <span>Your position</span>
