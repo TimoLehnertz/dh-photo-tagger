@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventData } from "./api";
-import { buildMatchModel, clearWinner, windowScore, expectedPassMs, fitOffsetToPicks, rankCandidates, suggestOffset, type RunWindow } from "./matching";
+import { bestWindowFor, buildMatchModel, clearWinner, windowScore, expectedPassMs, fitOffsetToPicks, rankCandidates, suggestOffset, type RunWindow } from "./matching";
 import { parseExifDateTime, wallTimeToUtcMs } from "./time";
 import fixture from "./fixtures/asu26.json";
 import exif from "../../test-images/exif.json";
@@ -97,6 +97,20 @@ describe("clearWinner", () => {
     expect(clearWinner([c(0.9), c(0.8)])).toBeNull();
     expect(clearWinner([c(0.3)])).toBeNull();
     expect(clearWinner([])).toBeNull();
+  });
+});
+
+describe("bestWindowFor", () => {
+  // Photo 0590 shows Lisa Peters (#268) in women's Q1A, but r4wrun has no Q1A result for her;
+  // her nearest recorded run is Q2, about 2.5 h later.
+  const lisa = [...model.athletes.values()].find((a) => a.lastName === "Peters")!.profileId;
+  const i = (exif as { file: string }[]).findIndex((e) => e.file.endsWith("-0590.jpg"));
+  const t = photoMs[i] - 2_064_000; // auto-detected offset -0:34:24
+  it("falls back to the nearest run without a limit", () => {
+    expect(bestWindowFor(lisa, t, model)?.label).toMatch(/Q2/i);
+  });
+  it("ignores runs beyond maxGapMs", () => {
+    expect(bestWindowFor(lisa, t, model, 15 * 60_000)).toBeNull();
   });
 });
 

@@ -373,11 +373,15 @@ export function fitOffsetToPicks(
   return Math.round(raw / 1000) * 1000;
 }
 
-/** For a confirmed (photo/clip, rider) pair, the run window that best explains it. */
-export function bestWindowFor(profileId: string, media: number | TimeSpan, model: MatchModel): RunWindow | null {
+/**
+ * For a confirmed (photo/clip, rider) pair, the run window that best explains it. Runs further than
+ * `maxGapMs` from the (clock-corrected) media are ignored: when the rider's run at that moment is
+ * missing from the timing data, their nearest other run is the wrong one to fit a clock to.
+ */
+export function bestWindowFor(profileId: string, media: number | TimeSpan, model: MatchModel, maxGapMs = Infinity): RunWindow | null {
   const [a, b] = spanOf(media);
   let best: RunWindow | null = null;
-  let bestDist = Infinity;
+  let bestDist = maxGapMs;
   for (const w of model.windows) {
     if (!w.profileIds.includes(profileId)) continue;
     const dist = Math.abs(gap(a, b, w.startMs, w.endMs));

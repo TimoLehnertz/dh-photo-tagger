@@ -71,6 +71,12 @@ export interface PhotoMatch {
   suggestion: Candidate | null;
 }
 
+/**
+ * "Fit to tagged" only uses a tag if the rider has a run this close to the photo at the current offset.
+ * Fitting refines the offset; it should not jump to a different session because a run is missing.
+ */
+const FIT_MAX_GAP_MS = 15 * 60_000;
+
 class AppState {
   events = $state.raw<R4Event[]>([]);
   eventsLoading = $state(false);
@@ -456,20 +462,25 @@ class AppState {
     if (!model) return;
     const pairs: { media: { startMs: number; durationMs: number }; window: NonNullable<ReturnType<typeof bestWindowFor>> }[] = [];
     const picksByKey = new Map(this.photos.map((p) => [p.key, p.picks]));
+    let skipped = 0;
     for (const span of this.#rawSpans()) {
       const picks = picksByKey.get(span.key)!;
       if (picks.length !== 1) continue; // single-rider photos/clips are unambiguous
-      const w = bestWindowFor(picks[0], { startMs: span.startMs + this.offsetMs, durationMs: span.durationMs }, model);
+      const w = bestWindowFor(picks[0], { startMs: span.startMs + this.offsetMs, durationMs: span.durationMs }, model, FIT_MAX_GAP_MS);
       if (w) pairs.push({ media: span, window: w });
+      else skipped++;
     }
     const off = fitOffsetToPicks(pairs, this.position, model);
+    const skippedNote = skipped
+      ? ` Skipped ${skipped} tagged file(s) whose rider has no run in the timing data within ${FIT_MAX_GAP_MS / 60_000} min.`
+      : "";
     if (off === null) {
-      this.notify("info", "Tag a few photos or clips with a single rider first, then fit the clock to them.");
+      this.notify("info", `Tag a few photos or clips with a single rider first, then fit the clock to them.${skippedNote}`);
       return;
     }
     this.offsetMs = off;
     this.persistFolderMeta();
-    this.notify("info", `Clock offset fitted to ${pairs.length} tagged file(s).`);
+    this.notify("info", `Clock offset fitted to ${pairs.length} tagged file(s).${skippedNote}`);
   }
 
   setOffset(ms: number) {
