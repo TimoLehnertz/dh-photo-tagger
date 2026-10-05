@@ -1,17 +1,23 @@
 use base64::Engine;
 use serde::Serialize;
 use std::fs;
-use std::io::{BufReader, Write};
+use std::io::{BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use tauri::Manager;
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff", "webp"];
+/// MP4/QuickTime family; their recording time is read by the frontend via `read_file_range`.
+const VIDEO_EXTENSIONS: &[&str] = &["mp4", "mov", "m4v", "3gp"];
+const MAX_RANGE_READ: u64 = 1 << 20;
 
 #[derive(Debug, Serialize, Default, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ScannedImage {
     name: String,
     path: String,
+    /// "image" or "video".
+    kind: &'static str,
+    size: u64,
     date_time_original: Option<String>,
     sub_sec_time_original: Option<String>,
     offset_time_original: Option<String>,
@@ -20,11 +26,15 @@ pub struct ScannedImage {
     thumbnail: Option<String>,
 }
 
-fn is_image(path: &Path) -> bool {
-    path.extension()
-        .and_then(|e| e.to_str())
-        .map(|e| IMAGE_EXTENSIONS.contains(&e.to_ascii_lowercase().as_str()))
-        .unwrap_or(false)
+fn media_kind(path: &Path) -> Option<&'static str> {
+    let ext = path.extension()?.to_str()?.to_ascii_lowercase();
+    if IMAGE_EXTENSIONS.contains(&ext.as_str()) {
+        Some("image")
+    } else if VIDEO_EXTENSIONS.contains(&ext.as_str()) {
+        Some("video")
+    } else {
+        None
+    }
 }
 
 fn ascii_field(exif: &exif::Exif, tag: exif::Tag) -> Option<String> {
@@ -38,12 +48,17 @@ fn ascii_field(exif: &exif::Exif, tag: exif::Tag) -> Option<String> {
     }
 }
 
-fn read_metadata(path: &Path) -> ScannedImage {
+fn read_metadata(path: &Path, kind: &'static str) -> ScannedImage {
     let mut img = ScannedImage {
         name: path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(),
         path: path.to_string_lossy().into_owned(),
+        kind,
+        size: fs::metadata(path).map(|m| m.len()).unwrap_or(0),
         ..Default::default()
     };
+    if kind == "video" {
+        return img;
+    }
     let Ok(file) = fs::File::open(path) else { return img };
     let Ok(exif) = exif::Reader::new().read_from_container(&mut BufReader::new(file)) else { return img };
 
@@ -77,11 +92,11 @@ pub fn scan_dir(dir: &Path) -> Result<Vec<ScannedImage>, String> {
     let mut paths: Vec<PathBuf> = entries
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.is_file() && is_image(p))
+        .filter(|p| p.is_file() && media_kind(p).is_some())
         .filter(|p| !p.file_name().map(|n| n.to_string_lossy().starts_with('.')).unwrap_or(true))
         .collect();
     paths.sort();
-    Ok(paths.iter().map(|p| read_metadata(p)).collect())
+    Ok(paths.iter().map(|p| read_metadata(p, media_kind(p).unwrap_or("image"))).collect())
 }
 
 /// Resolves `name` inside `dir`, refusing anything that could escape the folder.
@@ -115,6 +130,18 @@ pub fn rename_in(dir: &Path, from: &str, to: &str) -> Result<String, String> {
     }
     fs::rename(&src, &dst).map_err(|e| format!("could not rename {from}: {e}"))?;
     Ok(to.to_string())
+}
+
+/// Up to `length` bytes of `name` starting at `offset` (fewer at end of file).
+pub fn read_range_in(dir: &Path, name: &str, offset: u64, length: u64) -> Result<Vec<u8>, String> {
+    let path = child(dir, name)?;
+    let mut f = fs::File::open(&path).map_err(|e| format!("could not open {name}: {e}"))?;
+    f.seek(SeekFrom::Start(offset)).map_err(|e| format!("could not read {name}: {e}"))?;
+    let mut buf = Vec::new();
+    f.take(length.min(MAX_RANGE_READ))
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("could not read {name}: {e}"))?;
+    Ok(buf)
 }
 
 pub fn read_text_in(dir: &Path, name: &str) -> Result<Option<String>, String> {
@@ -155,6 +182,12 @@ fn rename_file(dir: String, from: String, to: String) -> Result<String, String> 
 }
 
 #[tauri::command]
+async fn read_file_range(dir: String, name: String, offset: u64, length: u64) -> Result<tauri::ipc::Response, String> {
+    // Raw bytes (an ArrayBuffer in JS) instead of a JSON number array.
+    read_range_in(Path::new(&dir), &name, offset, length).map(tauri::ipc::Response::new)
+}
+
+#[tauri::command]
 fn read_text_file(dir: String, name: String) -> Result<Option<String>, String> {
     read_text_in(Path::new(&dir), &name)
 }
@@ -168,7 +201,7 @@ fn write_text_file(dir: String, name: String, contents: String) -> Result<(), St
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![scan_folder, rename_file, read_text_file, write_text_file])
+        .invoke_handler(tauri::generate_handler![scan_folder, rename_file, read_file_range, read_text_file, write_text_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
@@ -183,7 +216,8 @@ mod tests {
 
     #[test]
     fn scans_sample_photos_with_exif() {
-        let images = scan_dir(&test_images()).unwrap();
+        let all = scan_dir(&test_images()).unwrap();
+        let images: Vec<_> = all.iter().filter(|i| i.kind == "image").collect();
         assert_eq!(images.len(), 31);
         let first = images.iter().find(|i| i.name.ends_with("0271.jpg")).unwrap();
         assert_eq!(first.date_time_original.as_deref(), Some("2026:10:04 14:48:07"));
@@ -192,10 +226,31 @@ mod tests {
     }
 
     #[test]
+    fn scans_sample_videos() {
+        let all = scan_dir(&test_images()).unwrap();
+        let videos: Vec<_> = all.iter().filter(|i| i.kind == "video").collect();
+        assert_eq!(videos.len(), 2);
+        assert!(videos.iter().any(|v| v.name.ends_with(".MOV")));
+        assert!(videos.iter().all(|v| v.size > 0 && v.date_time_original.is_none()));
+    }
+
+    #[test]
     fn matches_extensions_case_insensitively() {
-        assert!(is_image(Path::new("a.JPG")));
-        assert!(is_image(Path::new("a.jpeg")));
-        assert!(!is_image(Path::new("a.json")));
+        assert_eq!(media_kind(Path::new("a.JPG")), Some("image"));
+        assert_eq!(media_kind(Path::new("a.jpeg")), Some("image"));
+        assert_eq!(media_kind(Path::new("a.MOV")), Some("video"));
+        assert_eq!(media_kind(Path::new("a.mp4")), Some("video"));
+        assert_eq!(media_kind(Path::new("a.json")), None);
+    }
+
+    #[test]
+    fn reads_file_ranges_inside_the_folder_only() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join("v.mp4"), b"0123456789").unwrap();
+        assert_eq!(read_range_in(dir.path(), "v.mp4", 2, 3).unwrap(), b"234");
+        assert_eq!(read_range_in(dir.path(), "v.mp4", 8, 100).unwrap(), b"89");
+        assert_eq!(read_range_in(dir.path(), "v.mp4", 50, 4).unwrap(), b"");
+        assert!(read_range_in(dir.path(), "../v.mp4", 0, 4).is_err());
     }
 
     #[test]

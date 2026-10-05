@@ -5,6 +5,7 @@
   import CandidatePanel from "./components/CandidatePanel.svelte";
   import PhotoGrid from "./components/PhotoGrid.svelte";
   import Toolbar from "./components/Toolbar.svelte";
+  import VideoPlayer from "./components/VideoPlayer.svelte";
   import ZoomImage from "./components/ZoomImage.svelte";
 
   let fileInput: HTMLInputElement;
@@ -97,10 +98,12 @@
     <main class="workspace">
       <PhotoGrid />
       <section class="viewer">
-        {#if app.selected}
+        {#if app.selected?.kind === "video"}
+          <VideoPlayer photo={app.selected} />
+        {:else if app.selected}
           <ZoomImage src={app.selected.src} alt={app.selected.name} />
         {:else}
-          <p class="muted center">Select a photo.</p>
+          <p class="muted center">Select a photo or clip.</p>
         {/if}
       </section>
       {#if app.selected}
@@ -112,18 +115,18 @@
   {:else}
     <main class="welcome">
       <div class="card">
-        <h1>Tag downhill race photos with rider names</h1>
+        <h1>Tag downhill race photos and videos with rider names</h1>
         <ol>
           <li>Choose the <strong>r4wrun event</strong> the photos are from{app.event ? ` (✓ ${app.event.name})` : ""}.</li>
           <li>
             {#if isTauri}
-              <strong>Open the folder</strong> with your photos. Picked riders are appended to the file names.
+              <strong>Open the folder</strong> with your photos and videos. Picked riders are appended to the file names.
             {:else}
-              <strong>Drop photos</strong> (or a folder) here, or <button class="link" onclick={() => fileInput.click()}>browse</button>.
-              Photos stay on your computer — nothing is uploaded.
+              <strong>Drop photos and videos</strong> (or a folder) here, or <button class="link" onclick={() => fileInput.click()}>browse</button>.
+              Files stay on your computer — nothing is uploaded.
             {/if}
           </li>
-          <li>Press <strong>Auto-detect</strong> to correct the camera clock, then confirm riders for each photo.</li>
+          <li>Press <strong>Auto-detect</strong> to correct the camera clock, then confirm riders for each photo or clip.</li>
         </ol>
         {#if isTauri}
           <button class="primary" onclick={() => app.openFolder()}>Open folder…</button>
@@ -135,7 +138,7 @@
   {/if}
 
   {#if dragDepth > 0}
-    <div class="dropzone">Drop photos to add them</div>
+    <div class="dropzone">Drop photos or videos to add them</div>
   {/if}
   {#if app.busy}
     <div class="toast">{app.busy}</div>
@@ -146,7 +149,7 @@
   <input
     bind:this={fileInput}
     type="file"
-    accept="image/*,.jpg,.jpeg,.JPG,.JPEG,.heic,.HEIC"
+    accept="image/*,video/mp4,video/quicktime,.jpg,.jpeg,.heic,.mp4,.mov,.m4v"
     multiple
     hidden
     onchange={(e) => {

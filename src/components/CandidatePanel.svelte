@@ -4,11 +4,23 @@
   import type { Athlete, Candidate } from "../lib/matching";
   import type { Photo } from "../lib/photos";
   import { formatClock, formatWallTime } from "../lib/time";
+  import { formatDuration } from "../lib/video";
   import SuitFigure from "./SuitFigure.svelte";
 
   let { photo }: { photo: Photo } = $props();
 
   const match = $derived(app.matches.get(photo.key));
+  const isVideo = $derived(photo.kind === "video");
+
+  /** For clips: is this rider on course (or passing your spot) at the current playhead? */
+  function isLive(c: Candidate) {
+    if (!isVideo || app.playheadMs === null || match?.utcMs == null) return false;
+    if (app.position === null) {
+      const at = match.utcMs + app.playheadMs;
+      return at >= c.window.startMs && at <= c.window.endMs;
+    }
+    return Math.abs(app.playheadMs - c.clipOffsetMs) <= app.toleranceMs;
+  }
   let query = $state("");
 
   function flag(country: string | null) {
@@ -26,6 +38,13 @@
 
   function describe(c: Candidate) {
     const s = c.deltaMs / 1000;
+    if (isVideo) {
+      if (c.deltaMs === 0) {
+        const verb = app.position === null ? "on course from" : "passes you at";
+        return `${verb} ${formatDuration(c.clipOffsetMs)} in clip`;
+      }
+      return c.deltaMs < 0 ? `${(-s).toFixed(1)}s after clip ends` : `${s.toFixed(1)}s before clip starts`;
+    }
     if (app.position === null) {
       if (c.deltaMs === 0) return `in run at ${Math.round(c.runFraction * 100)}%`;
       return c.deltaMs < 0 ? `${(-s).toFixed(1)}s before start` : `${s.toFixed(1)}s after finish`;
@@ -52,11 +71,21 @@
       <div class="times mono">
         <div><span class="muted">Camera</span> {formatWallTime(photo.wall)}{photo.offsetTag ? ` (tag ${photo.offsetTag}, ignored)` : ""}</div>
         {#if match?.utcMs != null}
-          <div><span class="muted">Corrected</span> {formatClock(match.utcMs, app.timeZone, true)} <span class="muted">{app.timeZone}</span></div>
+          <div>
+            <span class="muted">Corrected</span> {formatClock(match.utcMs, app.timeZone, true)}{#if isVideo && match.durationMs}
+              – {formatClock(match.utcMs + match.durationMs, app.timeZone)}{/if}
+            <span class="muted">{app.timeZone}</span>
+          </div>
+        {/if}
+        {#if isVideo}
+          <div><span class="muted">Length</span> {photo.durationMs != null ? formatDuration(photo.durationMs) : "unknown"}</div>
         {/if}
       </div>
     {:else}
-      <div class="warn">This photo has no EXIF capture time — pick riders manually below.</div>
+      <div class="warn">
+        {isVideo ? "This clip has no readable recording time (only MP4/MOV metadata is supported)" : "This photo has no EXIF capture time"}
+        — pick riders manually below.
+      </div>
     {/if}
   </div>
 
@@ -82,7 +111,7 @@
 
     <h3>
       Candidates
-      {#if match?.candidates.length}<span class="muted small">— click or press 1–9 to tag</span>{/if}
+      {#if match?.candidates.length}<span class="muted small">— click or press 1–9 to tag{isVideo ? "; ▸ jumps to the rider" : ""}</span>{/if}
     </h3>
     {#if match?.candidates.length}
       <ul class="list">
@@ -91,8 +120,8 @@
           {@const picked = photo.picks.includes(c.profileId)}
           {@const suggested = match.suggestion?.profileId === c.profileId && !photo.picks.length}
           {@const b = bib(a, c.window.discipline)}
-          <li>
-            <button class="row" class:picked class:suggested onclick={() => app.togglePick(photo, c.profileId)} aria-pressed={picked}>
+          <li class:seekable={isVideo}>
+            <button class="row" class:picked class:suggested class:live={isLive(c)} onclick={() => app.togglePick(photo, c.profileId)} aria-pressed={picked}>
               <span class="check">{picked ? "✓" : i < 9 ? i + 1 : ""}</span>
               <SuitFigure colors={a?.suitColors ?? null} size={46} />
               <span class="who">
@@ -107,12 +136,17 @@
                 <span class="bar" style:width={`${Math.round(c.score * 100)}%`}></span>
               </span>
             </button>
+            {#if isVideo}
+              <button class="seek mono" title="Play from when this rider should be visible" onclick={() => app.seek(photo, Math.max(0, c.clipOffsetMs - 2000))}>
+                ▸ {formatDuration(c.clipOffsetMs)}
+              </button>
+            {/if}
           </li>
         {/each}
       </ul>
     {:else if photo.wall}
       <p class="muted pad">
-        No rider was on course at this time. Try “Auto-detect” for the clock offset, a wider tolerance, or other disciplines.
+        No rider was on course {isVideo ? "during this clip" : "at this time"}. Try “Auto-detect” for the clock offset, a wider tolerance, or other disciplines.
       </p>
     {/if}
 
@@ -161,6 +195,10 @@
   .compact .row { grid-template-columns: 22px auto 1fr; }
   .row.picked { border-color: var(--ok); background: var(--ok-soft); }
   .row.suggested { border: 1px dashed var(--accent); }
+  .row.live { box-shadow: inset 3px 0 0 var(--accent); }
+  .list li { position: relative; }
+  .seekable .row { padding-bottom: 26px; }
+  .seek { position: absolute; right: 8px; bottom: 6px; padding: 1px 8px; font-size: 12px; }
   .check { text-align: center; color: var(--muted); font-weight: 600; }
   .picked .check { color: var(--ok); }
   .who { display: flex; flex-direction: column; gap: 1px; min-width: 0; }

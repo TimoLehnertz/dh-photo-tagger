@@ -49,10 +49,33 @@ export interface Candidate {
   profileId: string;
   score: number; // 0..1
   window: RunWindow;
-  /** Photo time minus the expected passing time (or minus the nearest run edge when outside). */
+  /**
+   * Signed gap between the media and the rider: 0 when they overlap; negative when the photo/clip
+   * ends before the expected passing moment (or before the run starts), positive when it starts after.
+   */
   deltaMs: number;
-  /** Where in the run the photo falls: 0 = start, 1 = finish (may be outside 0..1). */
+  /** Where in the run the rider is at `moment`: 0 = start, 1 = finish (may be outside 0..1). */
   runFraction: number;
+  /** For a clip: how far into it (ms) the rider should be visible. Always 0 for photos. */
+  clipOffsetMs: number;
+}
+
+/** A photo is an instant (durationMs 0); a video clip covers [startMs, startMs + durationMs]. */
+export interface TimeSpan {
+  startMs: number;
+  durationMs?: number;
+}
+
+function spanOf(t: number | TimeSpan): [number, number] {
+  if (typeof t === "number") return [t, t];
+  return [t.startMs, t.startMs + Math.max(0, t.durationMs ?? 0)];
+}
+
+/** Signed distance from the span [a, b] to the moment/range [lo, hi]; 0 when they overlap. */
+function gap(a: number, b: number, lo: number, hi: number): number {
+  if (b < lo) return b - lo;
+  if (a > hi) return a - hi;
+  return 0;
 }
 
 const MIN_SCORE = 0.02;
@@ -182,33 +205,46 @@ export function expectedPassMs(w: RunWindow, position: number, refSplitFraction:
   return w.startMs + position * duration;
 }
 
-function scoreWindow(photoMs: number, w: RunWindow, opts: MatchOptions, model: MatchModel): { score: number; deltaMs: number } {
-  const tol = Math.max(opts.toleranceMs, 1);
-  let deltaMs: number;
-  if (opts.position === null) {
-    deltaMs = photoMs < w.startMs ? photoMs - w.startMs : photoMs > w.endMs ? photoMs - w.endMs : 0;
-  } else if (w.kind === "heat") {
-    deltaMs = photoMs - (w.startMs + opts.position * (w.endMs - w.startMs));
-  } else {
-    deltaMs = photoMs - expectedPassMs(w, opts.position, model.splitFraction.get(w.discipline));
-  }
-  return { score: Math.exp(-0.5 * (deltaMs / tol) ** 2), deltaMs };
+function expectedMoment(w: RunWindow, position: number, model: MatchModel): number {
+  return w.kind === "heat"
+    ? w.startMs + position * (w.endMs - w.startMs)
+    : expectedPassMs(w, position, model.splitFraction.get(w.discipline));
 }
 
-/** Ranked candidate riders for a photo taken at `photoMs` (UTC, already clock-corrected). */
-export function rankCandidates(photoMs: number, model: MatchModel, opts: MatchOptions, limit = 12): Candidate[] {
+function scoreWindow(a: number, b: number, w: RunWindow, opts: MatchOptions, model: MatchModel) {
+  const tol = Math.max(opts.toleranceMs, 1);
+  let deltaMs: number;
+  let moment: number; // the instant inside [a, b] that best shows this rider
+  if (opts.position === null) {
+    deltaMs = gap(a, b, w.startMs, w.endMs);
+    moment = Math.min(Math.max(w.startMs, a), b);
+  } else {
+    const e = expectedMoment(w, opts.position, model);
+    deltaMs = gap(a, b, e, e);
+    moment = Math.min(Math.max(e, a), b);
+  }
+  return { score: Math.exp(-0.5 * (deltaMs / tol) ** 2), deltaMs, moment };
+}
+
+/**
+ * Ranked candidate riders for a photo taken at `media` (UTC ms, already clock-corrected), or for a
+ * video clip spanning `{ startMs, durationMs }`.
+ */
+export function rankCandidates(media: number | TimeSpan, model: MatchModel, opts: MatchOptions, limit = 12): Candidate[] {
+  const [a, b] = spanOf(media);
   const reach = opts.toleranceMs * 4;
   const best = new Map<string, Candidate>();
   for (const w of model.windows) {
-    if (w.startMs - reach > photoMs) break; // windows are sorted by start
-    if (w.endMs + reach < photoMs) continue;
+    if (w.startMs - reach > b) break; // windows are sorted by start
+    if (w.endMs + reach < a) continue;
     if (!opts.disciplines.has(w.discipline)) continue;
-    const { score, deltaMs } = scoreWindow(photoMs, w, opts, model);
+    const { score, deltaMs, moment } = scoreWindow(a, b, w, opts, model);
     if (score < MIN_SCORE) continue;
-    const runFraction = (photoMs - w.startMs) / (w.endMs - w.startMs);
+    const runFraction = (moment - w.startMs) / (w.endMs - w.startMs);
+    const clipOffsetMs = moment - a;
     for (const profileId of w.profileIds) {
       const prev = best.get(profileId);
-      if (!prev || score > prev.score) best.set(profileId, { profileId, score, window: w, deltaMs, runFraction });
+      if (!prev || score > prev.score) best.set(profileId, { profileId, score, window: w, deltaMs, runFraction, clipOffsetMs });
     }
   }
   return [...best.values()]
@@ -231,25 +267,27 @@ export interface OffsetSuggestion {
 }
 
 /**
- * Finds the camera clock offset that puts the most photos inside some run window.
- * `photoMs` are the uncorrected UTC times. Exact sweep over offset space: for every photo the
+ * Finds the camera clock offset that puts the most photos/clips inside (overlapping) some run.
+ * `media` are the uncorrected UTC times. Exact sweep over offset space: for every item the
  * set of offsets that place it inside a run is a union of intervals; we find where most overlap.
  */
 export function suggestOffset(
-  photoMs: number[],
+  media: (number | TimeSpan)[],
   windows: RunWindow[],
   disciplines: ReadonlySet<string>,
   rangeMs = 6 * 3600_000,
   marginMs = 5_000,
 ): OffsetSuggestion | null {
   const ws = windows.filter((w) => disciplines.has(w.discipline));
-  if (!photoMs.length || !ws.length) return null;
+  if (!media.length || !ws.length) return null;
   const events: [number, number][] = [];
-  for (const t of photoMs) {
+  for (const item of media) {
+    const [a, b] = spanOf(item);
     const spans: [number, number][] = [];
     for (const w of ws) {
-      const lo = Math.max(w.startMs - marginMs - t, -rangeMs);
-      const hi = Math.min(w.endMs + marginMs - t, rangeMs);
+      // [a+o, b+o] overlaps [start-m, end+m]  ⇔  o ∈ [start-m-b, end+m-a]
+      const lo = Math.max(w.startMs - marginMs - b, -rangeMs);
+      const hi = Math.min(w.endMs + marginMs - a, rangeMs);
       if (lo <= hi) spans.push([lo, hi]);
     }
     spans.sort((a, b) => a[0] - b[0]);
@@ -264,7 +302,7 @@ export function suggestOffset(
     }
     if (cur) events.push([cur[0], 1], [cur[1], -1]);
   }
-  if (!events.length) return { offsetMs: 0, matched: 0, total: photoMs.length };
+  if (!events.length) return { offsetMs: 0, matched: 0, total: media.length };
   // Opening edges sort before closing ones at the same offset (intervals are closed).
   events.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
 
@@ -288,7 +326,7 @@ export function suggestOffset(
       bestHi = hi;
     }
   }
-  return { offsetMs: Math.round((bestLo + bestHi) / 2 / 1000) * 1000, matched: bestCount, total: photoMs.length };
+  return { offsetMs: Math.round((bestLo + bestHi) / 2 / 1000) * 1000, matched: bestCount, total: media.length };
 }
 
 /**
@@ -296,18 +334,16 @@ export function suggestOffset(
  * confirmed photo inside its rider's run (or, with a known position, at the expected moment).
  */
 export function fitOffsetToPicks(
-  pairs: { photoMs: number; window: RunWindow }[],
+  pairs: { media: number | TimeSpan; window: RunWindow }[],
   position: number | null,
   model: MatchModel,
 ): number | null {
   if (!pairs.length) return null;
-  const spans = pairs.map(({ photoMs, window: w }) => {
-    if (position === null) return [w.startMs - photoMs, w.endMs - photoMs] as const;
-    const e =
-      w.kind === "heat"
-        ? w.startMs + position * (w.endMs - w.startMs)
-        : expectedPassMs(w, position, model.splitFraction.get(w.discipline));
-    return [e - photoMs, e - photoMs] as const;
+  const spans = pairs.map(({ media, window: w }) => {
+    const [a, b] = spanOf(media);
+    if (position === null) return [w.startMs - b, w.endMs - a] as const;
+    const e = expectedMoment(w, position, model);
+    return [e - b, e - a] as const;
   });
   const lo = Math.max(...spans.map((s) => s[0]));
   const hi = Math.min(...spans.map((s) => s[1]));
@@ -315,13 +351,14 @@ export function fitOffsetToPicks(
   return Math.round(raw / 1000) * 1000;
 }
 
-/** For a confirmed (photo, rider) pair, the run window that best explains the photo. */
-export function bestWindowFor(profileId: string, photoMs: number, model: MatchModel): RunWindow | null {
+/** For a confirmed (photo/clip, rider) pair, the run window that best explains it. */
+export function bestWindowFor(profileId: string, media: number | TimeSpan, model: MatchModel): RunWindow | null {
+  const [a, b] = spanOf(media);
   let best: RunWindow | null = null;
   let bestDist = Infinity;
   for (const w of model.windows) {
     if (!w.profileIds.includes(profileId)) continue;
-    const dist = photoMs < w.startMs ? w.startMs - photoMs : photoMs > w.endMs ? photoMs - w.endMs : 0;
+    const dist = Math.abs(gap(a, b, w.startMs, w.endMs));
     if (dist < bestDist) {
       bestDist = dist;
       best = w;

@@ -122,3 +122,19 @@ frontend (TS) so the web and Mac builds share it; Rust side only for folder scan
 reading files and renaming (`tauri-plugin-dialog`, `tauri-plugin-fs`). Detect runtime with
 `window.__TAURI_INTERNALS__` to switch between folder-mode and drag-and-drop mode.
 Set Vite `base` to `/dh-photo-tagger/` for Pages.
+
+## Videos (added later)
+
+Requirement: the app must also work with videos. Implementation:
+
+- `src/lib/video.ts` walks the ISO-BMFF boxes (`moov/mvhd`) through a byte-range reader:
+  `File.slice` on the web, the `read_file_range` Tauri command on the Mac. It reads only box
+  headers, so `moov`-at-end files cost the same as fast-start ones.
+- `mvhd.creation_time` is nominally UTC, but many cameras store their local clock reading there.
+  The default treats it like photo EXIF (wall time in the camera zone), with a UI toggle for UTC
+  (phones) and for start-vs-end stamping.
+- Matching treats a clip as a span `[start, start + duration]`; photos are zero-length spans.
+  Candidates carry `clipOffsetMs`, the moment in the clip when the rider appears or passes.
+- `test-images/03_10_DOWNHILL_SKB_CLIP-0001.mp4` (moov first) and `CLIP-0002.MOV` (moov last)
+  are small synthetic clips made from the sample photos with ffmpeg. Their `creation_time` is set
+  to the camera clock (17:21:00 and 17:39:50), not real footage.

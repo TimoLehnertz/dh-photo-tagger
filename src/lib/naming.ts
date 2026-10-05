@@ -1,7 +1,27 @@
 export const IMAGE_EXTENSIONS = ["jpg", "jpeg", "heic", "heif", "png", "tif", "tiff", "webp"];
+/** MP4/QuickTime family: the formats whose recording time we can read (see video.ts). */
+export const VIDEO_EXTENSIONS = ["mp4", "mov", "m4v", "3gp"];
+
+export type MediaKind = "image" | "video";
+
+function extOf(name: string): string {
+  return splitExt(name).ext.slice(1).toLowerCase();
+}
 
 export function isImageName(name: string): boolean {
-  return IMAGE_EXTENSIONS.includes(splitExt(name).ext.slice(1).toLowerCase());
+  return IMAGE_EXTENSIONS.includes(extOf(name));
+}
+
+export function isVideoName(name: string): boolean {
+  return VIDEO_EXTENSIONS.includes(extOf(name));
+}
+
+export function mediaKindOf(name: string, mimeType = ""): MediaKind | null {
+  if (isImageName(name)) return "image";
+  if (isVideoName(name)) return "video";
+  if (mimeType.startsWith("image/")) return "image";
+  if (mimeType === "video/mp4" || mimeType === "video/quicktime") return "video";
+  return null;
 }
 
 /** "a.b.JPG" → { stem: "a.b", ext: ".JPG" }. Extension case is preserved. */
@@ -29,7 +49,7 @@ export function taggedFileName(originalName: string, labels: string[]): string {
   return clean.length ? `${stem}_${clean.join("_")}${ext}` : originalName;
 }
 
-/** Sidecar stored next to the photos (Mac) so renamed files can be mapped back to their originals. */
+/** Sidecar stored next to the media files (Mac) so renamed files can be mapped back to their originals. */
 export const SIDECAR_NAME = ".dh-photo-tagger.json";
 
 export interface SidecarEntry {

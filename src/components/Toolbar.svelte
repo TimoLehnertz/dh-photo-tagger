@@ -120,6 +120,20 @@
       {/if}
     </label>
 
+    {#if app.hasVideos}
+      <label class="field" title="How to read video timestamps. Most cameras store their own clock reading (like photo EXIF); phones store real UTC. Some cameras stamp the end of the recording instead of the start.">
+        <span>Video time</span>
+        <select bind:value={app.videoClock}>
+          <option value="local">camera clock</option>
+          <option value="utc">UTC (phones)</option>
+        </select>
+        <select bind:value={app.videoStamp}>
+          <option value="start">= start</option>
+          <option value="end">= end</option>
+        </select>
+      </label>
+    {/if}
+
     <label class="field" title="How far a photo may be from a run (or from the expected passing moment) and still count.">
       <span>Tolerance</span>
       <select bind:value={app.toleranceMs}>

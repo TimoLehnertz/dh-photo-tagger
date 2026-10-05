@@ -91,7 +91,7 @@ describe("rankCandidates", () => {
 
 describe("clearWinner", () => {
   const w = model.windows[0];
-  const c = (score: number) => ({ profileId: String(score), score, window: w, deltaMs: 0, runFraction: 0.5 });
+  const c = (score: number) => ({ profileId: String(score), score, window: w, deltaMs: 0, runFraction: 0.5, clipOffsetMs: 0 });
   it("only picks a clearly leading candidate", () => {
     expect(clearWinner([c(0.9), c(0.2)])?.score).toBe(0.9);
     expect(clearWinner([c(0.9), c(0.8)])).toBeNull();
@@ -103,12 +103,57 @@ describe("clearWinner", () => {
 describe("fitOffsetToPicks", () => {
   it("finds an offset consistent with all confirmed picks", () => {
     const ws = model.windows.filter((w) => w.discipline === "skateboarding").slice(10, 13);
-    const pairs = ws.map((w) => ({ window: w, photoMs: (w.startMs + w.endMs) / 2 + 600_000 }));
+    const pairs = ws.map((w) => ({ window: w, media: (w.startMs + w.endMs) / 2 + 600_000 }));
     const off = fitOffsetToPicks(pairs, null, model)!;
     for (const p of pairs) {
-      expect(p.photoMs + off).toBeGreaterThanOrEqual(p.window.startMs);
-      expect(p.photoMs + off).toBeLessThanOrEqual(p.window.endMs);
+      expect(p.media + off).toBeGreaterThanOrEqual(p.window.startMs);
+      expect(p.media + off).toBeLessThanOrEqual(p.window.endMs);
     }
     expect(fitOffsetToPicks([], null, model)).toBeNull();
+  });
+});
+
+describe("video clips (time spans)", () => {
+  const w = model.windows.find((w) => w.discipline === "skateboarding" && w.endMs - w.startMs > 60_000)!;
+  const opts = { disciplines: skate, position: null, toleranceMs: 2000 };
+
+  it("matches a rider whose run overlaps any part of the clip", () => {
+    // Clip starts 30 s before the run and ends 5 s into it.
+    const clip = { startMs: w.startMs - 30_000, durationMs: 35_000 };
+    const c = rankCandidates(clip, model, opts, 50).find((c) => c.profileId === w.profileIds[0])!;
+    expect(c.score).toBe(1);
+    expect(c.deltaMs).toBe(0);
+    // The rider appears once their run starts, 30 s into the clip.
+    expect(c.clipOffsetMs).toBe(30_000);
+    expect(c.runFraction).toBeCloseTo(0, 5);
+  });
+
+  it("does not match a clip that ended long before the run", () => {
+    const clip = { startMs: w.startMs - 90_000, durationMs: 30_000 };
+    expect(rankCandidates(clip, model, opts, 50).some((c) => c.window === w)).toBe(false);
+  });
+
+  it("tells you when in the clip a rider passes a known position", () => {
+    const e = expectedPassMs(w, 0.5, model.splitFraction.get("skateboarding"));
+    const clip = { startMs: e - 12_000, durationMs: 60_000 };
+    const c = rankCandidates(clip, model, { ...opts, position: 0.5 }, 50).find((c) => c.window === w)!;
+    expect(c.score).toBe(1);
+    expect(c.clipOffsetMs).toBe(12_000);
+  });
+
+  it("finds the clock offset with clips as well as photos", () => {
+    // Clips spread over the whole day, as real footage is (session gaps make the offset unambiguous).
+    const runs = model.windows.filter((w) => w.discipline === "skateboarding").filter((_, i) => i % 6 === 0).slice(0, 30);
+    const clips = runs.map((w) => ({ startMs: w.startMs + 20 * 60_000 - 5_000, durationMs: 10_000 }));
+    const s = suggestOffset(clips, model.windows, skate)!;
+    expect(s.matched).toBe(30);
+    expect(Math.abs(s.offsetMs + 20 * 60_000)).toBeLessThan(120_000);
+  });
+
+  it("fits the offset to a tagged clip", () => {
+    const off = fitOffsetToPicks([{ media: { startMs: w.endMs + 600_000, durationMs: 20_000 }, window: w }], null, model)!;
+    const start = w.endMs + 600_000 + off;
+    expect(start + 20_000).toBeGreaterThanOrEqual(w.startMs);
+    expect(start).toBeLessThanOrEqual(w.endMs);
   });
 });
