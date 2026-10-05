@@ -84,6 +84,19 @@ Asunción local time (UTC-3), the photos (14:48–17:40 local = 17:48–20:40 UT
 inside the 10-04 skateboarding q1a/q2 windows, with gaps lining up with street luge
 sessions. So:
 
+> **Update (implementation):** checked against the actual runs, only ~5 of the 31 photos fall
+> inside a skateboarding run at UTC-3 with no correction. Sweeping clock offsets puts 25–26 of 31
+> photos inside runs at about **−35 min**, so this camera's clock was also ~35 min fast. Because
+> of that, auto-detecting the offset is a core feature (`suggestOffset` in `src/lib/matching.ts`),
+> not a nice-to-have. Riders start every ~20–30 s on ~70 s runs, so 3–4 are on course at once.
+> Timing alone can't tell the photographer's position or the exact offset within about ±1.5 min.
+> "Fit to tagged" refines the offset once the user has confirmed a few photos.
+>
+> Other API notes: embedding profiles in `event_registrations` needs the hint
+> `profiles!event_registrations_profile_id_fkey` (several FKs point at `profiles`). The
+> `practice_runs.created_at` values for ASU26 are bulk-imported (2 s apart), so they're not usable
+> as timing and are ignored. `bracket_heats` has no `event_id`; go through `brackets?event_id=…`.
+
 - Default: interpret EXIF wall time in the **event's timezone**, ignore the EXIF offset.
 - Still expose a **per-import clock offset** (± hours/minutes/seconds) in the UI, since
   camera clocks drift. Nice-to-have: auto-suggest the offset that maximises photo/run overlap.
