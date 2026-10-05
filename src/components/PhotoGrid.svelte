@@ -1,17 +1,20 @@
 <script lang="ts">
   import { app, type PhotoFilter } from "../lib/app.svelte";
   import { orientationTransform, type Photo } from "../lib/photos";
-  import { formatClock } from "../lib/time";
+  import type { WallTime } from "../lib/time";
   import { formatDuration } from "../lib/video";
 
   const filters: { id: PhotoFilter; label: string }[] = [
     { id: "all", label: "All" },
     { id: "untagged", label: "Untagged" },
-    { id: "suggested", label: "Suggested" },
     { id: "tagged", label: "Tagged" },
-    { id: "unmatched", label: "No match" },
     { id: "videos", label: "Videos" },
   ];
+
+  const pad = (n: number) => String(n).padStart(2, "0");
+  function formatWallClock(w: WallTime) {
+    return `${pad(w.hour)}:${pad(w.minute)}:${pad(w.second)}`;
+  }
 
   function pickedNames(p: Photo) {
     return p.picks.map((id, i) => app.athlete(id)?.name ?? p.pickNames[i]?.replace(/-/g, " ") ?? id);
@@ -33,17 +36,13 @@
       </button>
     {/each}
     <span class="spacer"></span>
-    <button class="accept" onclick={() => app.acceptSuggestions()} disabled={!app.stats.suggested} title="Tag every untagged photo that has one clearly leading candidate">
-      Accept {app.stats.suggested} suggestion{app.stats.suggested === 1 ? "" : "s"}
-    </button>
   </div>
   <div class="stats muted">
-    {app.stats.total} files · {app.stats.matched} matched · {app.stats.tagged} tagged
+    {app.stats.total} files · {app.stats.tagged} tagged
   </div>
 
   <div class="grid">
     {#each app.visiblePhotos as p (p.key)}
-      {@const m = app.matches.get(p.key)}
       <button class="card" class:selected={p.key === app.selectedKey} data-key={p.key} onclick={() => (app.selectedKey = p.key)} title={p.name}>
         <div class="thumb">
           {#if p.thumb}
@@ -56,26 +55,14 @@
           {#if p.kind === "video"}
             <span class="badge mono">▶ {p.durationMs != null ? formatDuration(p.durationMs) : "video"}</span>
           {/if}
-          {#if m?.utcMs != null}
-            <span class="time mono">{formatClock(m.utcMs, app.timeZone)}</span>
-          {/if}
-          {#if app.model && m?.utcMs != null}
-            {@const n = m.candidateCount}
-            <span class="riders mono" class:zero={!n} title="{n} athlete{n === 1 ? '' : 's'} on course at this moment">👤 {n}</span>
+          {#if p.wall}
+            <span class="time mono">{formatWallClock(p.wall)}</span>
           {/if}
         </div>
         <div class="name">{p.name}</div>
         <div class="tags">
           {#if p.picks.length}
             {#each pickedNames(p) as n}<span class="tag picked">✓ {n}</span>{/each}
-          {:else if m?.suggestion}
-            <span class="tag suggested">{app.athlete(m.suggestion.profileId)?.name}?</span>
-          {:else if m?.candidates.length}
-            <span class="tag">{m.candidateCount} candidate{m.candidateCount === 1 ? "" : "s"}</span>
-          {:else if !p.wall}
-            <span class="tag warn">no {p.kind === "video" ? "recording" : "capture"} time</span>
-          {:else if app.model}
-            <span class="tag none">no run at this time</span>
           {/if}
         </div>
       </button>
@@ -92,7 +79,6 @@
   .tabs { display: flex; align-items: center; gap: 2px; padding: 8px; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
   .tabs button { border: none; background: none; color: var(--muted); padding: 4px 8px; }
   .tabs .spacer { flex: 1; }
-  .tabs button.accept { border: 1px solid var(--border); color: var(--text); }
   .stats { font-size: 12px; padding: 6px 12px 0; }
   .tabs button.active { color: var(--text); background: var(--panel-2); }
   .grid {
@@ -121,15 +107,10 @@
   .thumb img { width: 100%; height: 100%; object-fit: cover; }
   .time { position: absolute; left: 4px; bottom: 4px; background: rgba(0, 0, 0, 0.65); padding: 1px 4px; border-radius: 4px; font-size: 11px; }
   .badge { position: absolute; right: 4px; top: 4px; background: rgba(0, 0, 0, 0.7); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-  .riders { position: absolute; right: 4px; bottom: 4px; background: rgba(0, 0, 0, 0.65); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
-  .riders.zero { opacity: 0.55; }
   .film { font-size: 34px; opacity: 0.6; }
   .name { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tags { display: flex; flex-wrap: wrap; gap: 3px; min-height: 18px; }
   .tag { font-size: 11px; padding: 1px 6px; border-radius: 999px; background: #2a2f3a; color: var(--muted); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tag.picked { background: var(--ok-soft); color: var(--ok); }
-  .tag.suggested { background: none; border: 1px dashed var(--accent); color: var(--accent); }
-  .tag.warn { color: var(--warn); }
-  .tag.none { opacity: 0.7; }
   .empty { grid-column: 1 / -1; text-align: center; padding: 24px; }
 </style>

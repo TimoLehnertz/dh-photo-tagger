@@ -60,17 +60,6 @@ export interface QualifyingRun {
   session: string | null;
 }
 
-export interface RunSplit {
-  profile_id: string;
-  discipline: string;
-  board: string | null;
-  run_number: number;
-  sector_count: number | null;
-  line: number | null;
-  split_ms: number | null;
-  created_at: string;
-}
-
 export interface Bracket {
   id: string;
   discipline: string;
@@ -90,7 +79,6 @@ export interface EventData {
   event: R4Event;
   registrations: Registration[];
   runs: QualifyingRun[];
-  splits: RunSplit[];
   brackets: Bracket[];
 }
 
@@ -129,7 +117,7 @@ export function listEvents(fetchImpl?: typeof fetch): Promise<R4Event[]> {
 
 export async function loadEventData(event: R4Event, fetchImpl?: typeof fetch): Promise<EventData> {
   const id = encodeURIComponent(event.id);
-  const [registrations, runs, splits, brackets] = await Promise.all([
+  const [registrations, runs, brackets] = await Promise.all([
     getAll<Registration>(
       `event_registrations?event_id=eq.${id}&select=event_id,profile_id,discipline,category,bib_number,` +
         "profiles!event_registrations_profile_id_fkey(first_name,last_name,country,username,avatar_url,suit_colors)" +
@@ -140,36 +128,14 @@ export async function loadEventData(event: R4Event, fetchImpl?: typeof fetch): P
       `qualifying_runs?event_id=eq.${id}&select=id,profile_id,discipline,category,run_number,time_ms,dnf,created_at,session&order=created_at`,
       fetchImpl,
     ),
-    getAll<RunSplit>(
-      `run_splits?event_id=eq.${id}&select=profile_id,discipline,board,run_number,sector_count,line,split_ms,created_at&order=created_at`,
-      fetchImpl,
-    ),
-    // Heats only matter once they have actually run; tolerate failures (finals data is optional).
+    // Finals data is optional; tolerate failures.
     getAll<Bracket>(
       `brackets?event_id=eq.${id}&select=id,discipline,category,` +
         "bracket_heats(id,round,heat_number,is_consolation,running_at,completed_at,bracket_entries(profile_id))&order=id",
       fetchImpl,
     ).catch(() => [] as Bracket[]),
   ]);
-  return { event, registrations, runs, splits, brackets };
-}
-
-/** First and last moment (UTC ms) with timing data for an event, or null if it has none yet. */
-export async function eventTimingSpan(eventId: string, fetchImpl?: typeof fetch): Promise<{ firstMs: number; lastMs: number } | null> {
-  const id = encodeURIComponent(eventId);
-  const base = `qualifying_runs?event_id=eq.${id}&select=created_at&limit=1&order=created_at`;
-  const [first, last, heats] = await Promise.all([
-    get<{ created_at: string }[]>(`${base}.asc`, fetchImpl),
-    get<{ created_at: string }[]>(`${base}.desc`, fetchImpl),
-    get<{ bracket_heats: { running_at: string | null; completed_at: string | null }[] }[]>(
-      `brackets?event_id=eq.${id}&select=bracket_heats(running_at,completed_at)`,
-      fetchImpl,
-    ).catch(() => []),
-  ]);
-  const times = [...first, ...last].map((r) => Date.parse(r.created_at));
-  for (const b of heats) for (const h of b.bracket_heats ?? []) if (h.running_at && h.completed_at) times.push(Date.parse(h.running_at), Date.parse(h.completed_at));
-  const valid = times.filter((t) => !Number.isNaN(t));
-  return valid.length ? { firstMs: Math.min(...valid), lastMs: Math.max(...valid) } : null;
+  return { event, registrations, runs, brackets };
 }
 
 export function eventUrl(event: R4Event): string {

@@ -60,8 +60,9 @@ export interface SidecarEntry {
 
 export interface Sidecar {
   version: 1;
+  eventIds?: string[];
+  /** Written by older versions (single event); read for compatibility. */
   eventId?: string;
-  offsetMs?: number;
   files: Record<string, SidecarEntry>; // keyed by original file name
 }
 

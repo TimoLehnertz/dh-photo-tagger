@@ -3,7 +3,7 @@
   import { app } from "./lib/app.svelte";
   import { DOWNLOADS } from "./lib/downloads";
   import { isTauri } from "./lib/platform";
-  import CandidatePanel from "./components/CandidatePanel.svelte";
+  import AthletePanel from "./components/AthletePanel.svelte";
   import PhotoGrid from "./components/PhotoGrid.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import VideoPlayer from "./components/VideoPlayer.svelte";
@@ -11,6 +11,7 @@
 
   let fileInput: HTMLInputElement;
   let dragDepth = $state(0);
+  let panel = $state<ReturnType<typeof AthletePanel>>();
 
   onMount(() => {
     app.loadEvents();
@@ -66,12 +67,13 @@
       app.step(-1);
       e.preventDefault();
     } else if (photo && /^[1-9]$/.test(e.key)) {
-      const c = app.matches.get(photo.key)?.candidates[Number(e.key) - 1];
-      if (c) app.togglePick(photo, c.profileId);
-    } else if (photo && e.key === "Enter") {
-      const s = app.matches.get(photo.key)?.suggestion;
-      if (s && !photo.picks.length) app.togglePick(photo, s.profileId);
+      const a = app.filtered.athletes[Number(e.key) - 1];
+      if (a) app.togglePick(photo, a.profileId);
+    } else if (e.key === "Enter") {
       app.step(1);
+    } else if (e.key === "/") {
+      panel?.focusSearch();
+      e.preventDefault();
     }
   }
 </script>
@@ -91,9 +93,6 @@
   {#if app.eventsError}
     <div class="banner error">Could not load events from r4wrun: {app.eventsError} <button onclick={() => app.loadEvents()}>Retry</button></div>
   {/if}
-  {#if app.eventError}
-    <div class="banner error">Could not load event timing: {app.eventError} <button onclick={() => app.selectEvent(app.eventId)}>Retry</button></div>
-  {/if}
 
   {#if app.photos.length}
     <main class="workspace">
@@ -107,11 +106,7 @@
           <p class="muted center">Select a photo or clip.</p>
         {/if}
       </section>
-      {#if app.selected}
-        <CandidatePanel photo={app.selected} />
-      {:else}
-        <aside></aside>
-      {/if}
+      <AthletePanel bind:this={panel} photo={app.selected} />
     </main>
   {:else}
     <main class="welcome">
@@ -119,18 +114,21 @@
         <h1>Tag downhill race photos and videos with rider names</h1>
         <ol>
           <li>
-            Choose the <strong>r4wrun event</strong> the photos are from{app.event ? ` (✓ ${app.event.name})` : ""} — or just load
-            your files first: the list narrows to events on their dates and picks the event if only one matches.
+            Choose the <strong>r4wrun events</strong> at the top{app.selectedEvents.length ? ` (✓ ${app.selectedEvents.map((e) => e.name).join(", ")})` : ""}.
+            Events on your photos' dates are highlighted once files are loaded.
           </li>
           <li>
             {#if isTauri}
-              <strong>Open the folder</strong> with your photos and videos. Picked riders are appended to the file names.
+              <strong>Open the folder</strong> with your photos and videos. Tagged riders are appended to the file names.
             {:else}
               <strong>Drop photos and videos</strong> (or a folder) here, or <button class="link" onclick={() => fileInput.click()}>browse</button>.
-              Files stay on your computer — nothing is uploaded.
+              Files stay on your computer, nothing is uploaded.
             {/if}
           </li>
-          <li>Set the <strong>Clock offset</strong> to how far the camera clock was off, then confirm riders for each photo or clip.</li>
+          <li>
+            Narrow the athlete list step by step: disciplines, a range of races from the schedule, suit colours, and a
+            name or bib search. Click an athlete (or press 1–9) to tag the photo.
+          </li>
         </ol>
         {#if isTauri}
           <button class="primary" onclick={() => app.openFolder()}>Open folder…</button>
@@ -180,7 +178,7 @@
     flex: 1;
     min-height: 0;
     display: grid;
-    grid-template-columns: minmax(260px, 30%) 1fr 360px;
+    grid-template-columns: minmax(240px, 26%) 1fr 400px;
   }
   .workspace > :global(*) { min-height: 0; min-width: 0; }
   .viewer { border-left: 1px solid var(--border); min-height: 0; }

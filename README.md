@@ -1,8 +1,8 @@
 # DH Photo Tagger
 
-Match downhill race photos and videos to athletes using [r4wrun.com](https://r4wrun.com) timing data. The app
-reads each photo's EXIF capture time (or each clip's recording time and length), compares it with when every
-rider was on course, and shows a ranked list of candidates (with their suit colours) so you can tag files quickly.
+Tag downhill race photos and videos with athletes from [r4wrun.com](https://r4wrun.com). Pick the events, then
+narrow the athlete list step by step (disciplines, a range of races from the schedule, suit colours, name or
+bib) and click the rider to tag the photo.
 
 - **Web:** https://timolehnertz.github.io/media-tagger/. Drop photos and videos (or a whole folder) in.
   Files never leave your computer. Tags are shown in the app and remembered in the browser; files are not renamed.
@@ -30,56 +30,27 @@ Always the newest build of `main` (also linked from the web app):
 
 ## Using it
 
-1. Load photos and/or videos. The event list narrows to r4wrun events on their capture dates. Events whose
-   timing data overlaps the photo times are marked "✓ timing matches your photos", and if exactly one does, it
-   is selected for you. Untick the filter to see all events.
-2. Check the **event** and tick the **disciplines** to match (Skateboard / Inline / Street luge).
-3. Set the **Clock offset** to how far the camera clock was off: type it (e.g. `-34:24`) or use the
-   ±1h buttons. Camera clocks are often several minutes off. (The sample camera was about
-   34 min fast, so its offset is `-0:34:24`.) The offset is never guessed; it only changes when you set it.
-4. Click a photo to see it large (scroll or double-click to zoom) next to the riders who were on course at that
-   moment. Click a rider, or press `1`–`9`, to tag them. `←`/`→` moves between photos; `Enter` accepts the
-   suggestion and moves on.
-5. Once a few photos are tagged with a single rider, **Fit to tagged** refines the offset from them. Tags whose
-   rider has no recorded run within 15 min of the photo are skipped.
-   If you know roughly where you stood on the course, set **Your position**. Riders are then ranked by when
-   they should have passed you rather than just "on course".
-6. **Match window** sets how long before a run starts and after it finishes (in seconds) a photo still counts
-   as that rider. Defaults are 10 s / 10 s. With a position set, the window is around the moment the rider
-   should pass you. Riders inside the run score highest; the score falls off towards the edge of the window.
-7. **Accept suggestions** tags every photo that has one clearly leading candidate.
+1. Choose one or more **events** at the top. Once photos are loaded, events whose dates cover the photos'
+   capture dates are highlighted and listed first.
+2. Load photos and/or videos (MP4, MOV, M4V). Click one to see it large (scroll or double-click to zoom).
+3. Narrow the athletes in the sidebar. The filters apply one after another, and the row at the top shows how
+   many athletes are left after each:
+   1. **Disciplines**: Skateboard / Inline / Street luge.
+   2. **Races**: the schedule of the selected events (qualifying sessions and bracket heats). Set a *from* and a
+      *to* race; only riders who rode in those races, or in the races between, stay.
+   3. **Suit colours**: click a body part (helmet, chest, arms, legs) and choose one or more colours. Riders
+      without suit colours on r4wrun drop out once a colour is set. Dark shades also count as black and very
+      light ones as white.
+   4. **Name or bib**: type a name or a bib number (`343` or `#343`).
+4. Click an athlete, or press `1`–`9`, to tag the photo; click again (or the tag at the top) to remove it.
+   `Enter` in the search field tags the first match. `←`/`→` (or `Enter` outside the search) move between photos,
+   and `/` jumps to the search.
 
-### Videos
+On the Mac, a hidden `.dh-photo-tagger.json` in the photo folder records each file's original name, its tags
+and the selected events. Re-tagging a photo then rewrites its name cleanly.
 
-MP4, MOV and M4V clips are supported. The app reads the recording time and length from the file's `mvhd`
-header (only a few hundred bytes, so even huge files load instantly). A clip covers a span of time, so every
-rider on course at any point during it is a candidate. Each candidate shows **when in the clip** they appear
-(or pass your position), and **▸ 0:14** jumps the player there. While the clip plays, riders on course at
-the playhead are highlighted. Clips also count for *Fit to tagged*.
-
-Cameras disagree about video timestamps, so the **Video time** setting (shown once a clip is loaded) lets you
-choose:
-
-- *camera clock* (default, like photo EXIF; Canon, Sony, GoPro…) or *UTC* (phones);
-- whether the timestamp marks the *start* (most cameras) or the *end* of the recording.
-
-Playback uses the system's decoders. Safari and the Mac app play HEVC; Chrome may not, but matching still works.
-
-Photo times are read in the **event's time zone**, and the EXIF `OffsetTime` tag is ignored because it is
-often wrong. You can override the zone under *Camera zone*.
-
-### How matching works
-
-- `qualifying_runs.created_at` is when the result was recorded, which is roughly the finish. So a run spans
-  `[created_at − time_ms, created_at]`. `run_splits` (the first intermediate split) refine where a rider was
-  mid-run when a position is set. Bracket heats with `running_at`/`completed_at` count too (all heat riders).
-- Each run is scored by how far the photo time is from the run (or from the expected passing moment): 1 inside,
-  falling linearly to 0.1 at the edge of the match window, and excluded beyond it. Each rider keeps their best score.
-- In a time trial, several riders are on course at once, so the app shows a ranked list. It only pre-selects
-  a rider who is clearly ahead.
-
-On the Mac, a hidden `.dh-photo-tagger.json` in the photo folder records each file's original name, its
-picks, the event and the clock offset. Re-tagging a photo then rewrites its name cleanly.
+The schedule comes from r4wrun's recorded results, so a session whose results were never uploaded (for ASU26 the
+skateboarding Q1B) is missing from it, and its riders only appear through the races they have results for.
 
 ## Development
 
@@ -93,7 +64,7 @@ npm run tauri build -- --bundles appimage   # e.g. build the Linux AppImage loca
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Layout: all API and matching logic is TypeScript in `src/lib/` and shared by both builds. `src-tauri/` only
+Layout: all API and filter logic is TypeScript in `src/lib/` and shared by both builds. `src-tauri/` only
 scans folders, reads EXIF, serves byte ranges of video files (for the TypeScript MP4 header parser in
 `src/lib/video.ts`), renames files and reads/writes the sidecar.
 

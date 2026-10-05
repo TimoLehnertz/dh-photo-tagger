@@ -1,43 +1,20 @@
-import { DISCIPLINES, eventTimingSpan, listEvents, loadEventData, type R4Event } from "./api";
-import {
-  bestWindowFor,
-  buildMatchModel,
-  clearWinner,
-  fitOffsetToPicks,
-  rankCandidates,
-  type Athlete,
-  type Candidate,
-  type MatchModel,
-} from "./matching";
+import { DISCIPLINES, listEvents, loadEventData, type EventData, type R4Event } from "./api";
+import { applyFilters, buildRoster, type Athlete, type ColorName, type SuitPart } from "./roster";
 import { athleteLabel, parseSidecar, resolveOriginals, SIDECAR_NAME, taggedFileName, type Sidecar } from "./naming";
 import { photoFromScan, photosFromFiles, sortPhotos, type Photo } from "./photos";
 import { fileSrc, isTauri, pickFolder, readTextInFolder, renameInFolder, scanFolder, writeTextInFolder } from "./platform";
 import { captureDateRange, eventsOverlapping } from "./events";
-import { isValidTimeZone, localTimeZone, wallTimeToUtcMs } from "./time";
 import { videoPoster } from "./video";
 
 const SETTINGS_KEY = "dhpt:settings";
 const PICKS_KEY = "dhpt:picks";
 
 interface Settings {
-  eventId: string | null;
+  eventIds: string[];
   disciplines: string[];
-  timeZone: string | null;
-  position: number | null;
-  beforeMs: number;
-  afterMs: number;
-  onlyEventsOnPhotoDates: boolean;
-  videoClock: VideoClock;
-  videoStamp: VideoStamp;
+  raceFrom: string | null;
+  raceTo: string | null;
 }
-
-/**
- * How to read a clip's container timestamp. Many cameras (Canon, Sony, GoPro…) write their local
- * clock reading; phones write real UTC.
- */
-export type VideoClock = "local" | "utc";
-/** Whether that timestamp marks when recording started (most cameras) or ended. */
-export type VideoStamp = "start" | "end";
 
 function loadJson<T>(key: string, fallback: T): T {
   try {
@@ -56,46 +33,26 @@ function saveJson(key: string, value: unknown) {
   }
 }
 
-export type PhotoFilter = "all" | "untagged" | "tagged" | "suggested" | "unmatched" | "videos";
-
-export interface PhotoMatch {
-  /** Clock-corrected UTC time of the photo, or of the start of a clip. */
-  utcMs: number | null;
-  durationMs: number;
-  candidates: Candidate[];
-  /** Riders in the match window before `candidates` is cut to the display limit. */
-  candidateCount: number;
-  suggestion: Candidate | null;
-}
-
-/**
- * "Fit to tagged" only uses a tag if the rider has a run this close to the photo at the current offset.
- * Fitting refines the offset; it should not jump to a different session because a run is missing.
- */
-const FIT_MAX_GAP_MS = 15 * 60_000;
+export type PhotoFilter = "all" | "untagged" | "tagged" | "videos";
 
 class AppState {
   events = $state.raw<R4Event[]>([]);
   eventsLoading = $state(false);
   eventsError = $state<string | null>(null);
 
-  eventId = $state<string | null>(null);
-  model = $state.raw<MatchModel | null>(null);
-  eventLoading = $state(false);
-  eventError = $state<string | null>(null);
+  /** Events the athletes and schedule come from. */
+  eventIds = $state<string[]>([]);
+  /** Loaded data per event id. */
+  eventData = $state.raw<Map<string, EventData>>(new Map());
+  loadingEventIds = $state<string[]>([]);
+  eventErrors = $state.raw<Map<string, string>>(new Map());
 
+  // Filters, applied in this order.
   disciplines = $state<string[]>(DISCIPLINES.map((d) => d.id));
-  /** Zone the camera's wall-clock times are read in; null = use the event's zone. */
-  timeZoneOverride = $state<string | null>(null);
-  offsetMs = $state(0);
-  position = $state<number | null>(null);
-  /** Match window: how long before a run starts / after it ends a photo still counts. */
-  beforeMs = $state(10_000);
-  afterMs = $state(10_000);
-  /** Narrow the event list to events running on the loaded files' capture dates. */
-  onlyEventsOnPhotoDates = $state(true);
-  videoClock = $state<VideoClock>("local");
-  videoStamp = $state<VideoStamp>("start");
+  raceFrom = $state<string | null>(null);
+  raceTo = $state<string | null>(null);
+  suit = $state<Partial<Record<SuitPart, ColorName[]>>>({});
+  query = $state("");
 
   photos = $state<Photo[]>([]);
   selectedKey = $state<string | null>(null);
@@ -103,180 +60,82 @@ class AppState {
   folder = $state<string | null>(null);
   busy = $state<string | null>(null);
   notice = $state<{ kind: "info" | "error"; text: string } | null>(null);
-  /** Playback position (ms into the clip) of the selected video, for highlighting who's on course. */
-  playheadMs = $state<number | null>(null);
-  /** Asks the video player to jump; `nonce` makes repeated requests for the same spot fire. */
-  seekRequest = $state<{ key: string; ms: number; nonce: number } | null>(null);
 
   #sidecar: Sidecar = parseSidecar(null);
   #renameQueue: Promise<unknown> = Promise.resolve();
 
-  event = $derived(this.events.find((e) => e.id === this.eventId) ?? null);
+  selectedEvents = $derived(this.eventIds.map((id) => this.events.find((e) => e.id === id)).filter((e): e is R4Event => !!e));
 
-  /** Capture dates (camera clock) of everything loaded, for narrowing the event list. */
+  /** Capture dates (camera clock) of everything loaded. */
   captureRange = $derived(captureDateRange(this.photos.map((p) => p.wall)));
-  eventsOnPhotoDates = $derived(this.captureRange ? eventsOverlapping(this.events, this.captureRange) : []);
-  /** Timing span per event id (null = no timing yet), fetched for the date-matched events only. */
-  timingByEvent = $state.raw<Map<string, { firstMs: number; lastMs: number } | null>>(new Map());
+  /** Events whose dates cover the loaded files' capture dates. */
+  eventsOnPhotoDates = $derived(this.captureRange ? eventsOverlapping(this.events, this.captureRange, 0) : []);
 
-  /**
-   * Date-matched events whose timing data overlaps the photo times (read in that event's zone,
-   * ±6 h to allow for a wrong camera clock): the events the photos were actually taken at.
-   */
-  eventsDuringPhotos = $derived.by(() => {
-    const SLACK = 6 * 3600_000;
-    return this.eventsOnPhotoDates.filter((e) => {
-      const span = this.timingByEvent.get(e.id);
-      if (!span) return false;
-      const tz = isValidTimeZone(e.timezone) ? e.timezone : "UTC";
-      const times = this.photos.filter((p) => p.wall).map((p) => wallTimeToUtcMs(p.wall!, tz));
-      if (!times.length) return false;
-      return Math.min(...times) - SLACK <= span.lastMs && Math.max(...times) + SLACK >= span.firstMs;
-    });
-  });
+  roster = $derived(buildRoster(this.eventIds.map((id) => this.eventData.get(id)).filter((d): d is EventData => !!d)));
 
-  /** What the event picker lists: the date-matched events when filtering applies (plus the current one). */
-  pickableEvents = $derived.by(() => {
-    if (!this.onlyEventsOnPhotoDates || !this.captureRange || !this.eventsOnPhotoDates.length) return this.events;
-    // Events with matching timing first.
-    const during = new Set(this.eventsDuringPhotos);
-    const list = [...this.eventsOnPhotoDates].sort((a, b) => Number(during.has(b)) - Number(during.has(a)));
-    return this.event && !list.includes(this.event) ? [this.event, ...list] : list;
-  });
-
-  timeZone = $derived.by(() => {
-    if (this.timeZoneOverride && isValidTimeZone(this.timeZoneOverride)) return this.timeZoneOverride;
-    if (isValidTimeZone(this.event?.timezone)) return this.event!.timezone!;
-    return localTimeZone();
-  });
-
-  disciplineSet = $derived(new Set(this.disciplines));
+  filtered = $derived(
+    applyFilters(this.roster, {
+      disciplines: new Set(this.disciplines),
+      raceFrom: this.raceFrom,
+      raceTo: this.raceTo,
+      suit: this.suit,
+      query: this.query,
+    }),
+  );
 
   hasVideos = $derived(this.photos.some((p) => p.kind === "video"));
-
-  /** Photo time (or clip start) in UTC before the clock offset is applied. */
-  rawUtc = $derived.by(() => {
-    const tz = this.timeZone;
-    return new Map(
-      this.photos.map((p) => {
-        if (!p.wall) return [p.key, null];
-        if (p.kind !== "video") return [p.key, wallTimeToUtcMs(p.wall, tz)];
-        const t = wallTimeToUtcMs(p.wall, this.videoClock === "utc" ? "UTC" : tz);
-        return [p.key, this.videoStamp === "end" ? t - (p.durationMs ?? 0) : t];
-      }),
-    );
-  });
-
-  /** Uncorrected spans for offset fitting: photos are instants, clips cover their length. */
-  #rawSpans() {
-    const out: { key: string; startMs: number; durationMs: number }[] = [];
-    for (const p of this.photos) {
-      const raw = this.rawUtc.get(p.key);
-      if (raw != null) out.push({ key: p.key, startMs: raw, durationMs: p.durationMs ?? 0 });
-    }
-    return out;
-  }
-
-  matches = $derived.by(() => {
-    const out = new Map<string, PhotoMatch>();
-    const model = this.model;
-    const opts = { disciplines: this.disciplineSet, position: this.position, beforeMs: this.beforeMs, afterMs: this.afterMs };
-    for (const p of this.photos) {
-      const raw = this.rawUtc.get(p.key);
-      const utcMs = raw == null ? null : raw + this.offsetMs;
-      const durationMs = p.durationMs ?? 0;
-      // Long clips can show many riders, so list more of them.
-      const limit = p.kind === "video" ? 40 : 12;
-      const all = model && utcMs != null ? rankCandidates({ startMs: utcMs, durationMs }, model, opts, Infinity) : [];
-      const candidates = all.slice(0, limit);
-      out.set(p.key, { utcMs, durationMs, candidates, candidateCount: all.length, suggestion: clearWinner(candidates) });
-    }
-    return out;
-  });
 
   visiblePhotos = $derived.by(() => {
     const f = this.filter;
     if (f === "all") return this.photos;
     return this.photos.filter((p) => {
-      const m = this.matches.get(p.key);
       if (f === "tagged") return p.picks.length > 0;
       if (f === "untagged") return p.picks.length === 0;
-      if (f === "suggested") return p.picks.length === 0 && !!m?.suggestion;
-      if (f === "videos") return p.kind === "video";
-      return !m?.candidates.length; // unmatched
+      return p.kind === "video";
     });
   });
 
   selected = $derived(this.photos.find((p) => p.key === this.selectedKey) ?? null);
 
-  stats = $derived.by(() => {
-    let tagged = 0;
-    let suggested = 0;
-    let matched = 0;
-    for (const p of this.photos) {
-      const m = this.matches.get(p.key);
-      if (p.picks.length) tagged++;
-      else if (m?.suggestion) suggested++;
-      if (m?.candidates.length) matched++;
-    }
-    return { total: this.photos.length, tagged, suggested, matched };
-  });
+  stats = $derived({ total: this.photos.length, tagged: this.photos.filter((p) => p.picks.length).length });
 
   constructor() {
-    const s = loadJson<Settings>(SETTINGS_KEY, {
-      eventId: null,
+    const s = loadJson<Settings & { eventId?: string | null }>(SETTINGS_KEY, {
+      eventIds: [],
       disciplines: DISCIPLINES.map((d) => d.id),
-      timeZone: null,
-      position: null,
-      beforeMs: 10_000,
-      afterMs: 10_000,
-      onlyEventsOnPhotoDates: true,
-      videoClock: "local",
-      videoStamp: "start",
+      raceFrom: null,
+      raceTo: null,
     });
-    this.eventId = s.eventId;
+    this.eventIds = s.eventIds?.length ? s.eventIds : s.eventId ? [s.eventId] : [];
     this.disciplines = s.disciplines;
-    this.timeZoneOverride = s.timeZone;
-    // The clock offset is not restored from browser storage: it belongs to one set of photos and is
-    // always set by hand. The desktop app keeps it per folder in the sidecar instead.
-    this.position = s.position;
-    this.beforeMs = s.beforeMs;
-    this.afterMs = s.afterMs;
-    this.onlyEventsOnPhotoDates = s.onlyEventsOnPhotoDates;
-    this.videoClock = s.videoClock;
-    this.videoStamp = s.videoStamp;
+    this.raceFrom = s.raceFrom;
+    this.raceTo = s.raceTo;
 
     $effect.root(() => {
       $effect(() => {
         saveJson(SETTINGS_KEY, {
-          eventId: this.eventId,
+          eventIds: this.eventIds,
           disciplines: this.disciplines,
-          timeZone: this.timeZoneOverride,
-          position: this.position,
-          beforeMs: this.beforeMs,
-          afterMs: this.afterMs,
-          onlyEventsOnPhotoDates: this.onlyEventsOnPhotoDates,
-          videoClock: this.videoClock,
-          videoStamp: this.videoStamp,
+          raceFrom: this.raceFrom,
+          raceTo: this.raceTo,
         } satisfies Settings);
       });
     });
   }
 
   athlete(profileId: string): Athlete | undefined {
-    return this.model?.athletes.get(profileId);
+    return this.roster.athletes.get(profileId);
   }
+
+  // ---- events ------------------------------------------------------------------------------
 
   async loadEvents() {
     this.eventsLoading = true;
     this.eventsError = null;
     try {
       this.events = await listEvents();
-      if (this.eventId && this.events.some((e) => e.id === this.eventId)) await this.selectEvent(this.eventId);
-      else {
-        this.eventId = null;
-        await this.autoSelectEvent();
-      }
+      this.eventIds = this.eventIds.filter((id) => this.events.some((e) => e.id === id));
+      await Promise.all(this.eventIds.map((id) => this.loadEvent(id)));
     } catch (e) {
       this.eventsError = String((e as Error).message ?? e);
     } finally {
@@ -284,30 +143,58 @@ class AppState {
     }
   }
 
-  async selectEvent(id: string | null) {
-    this.eventId = id;
-    this.model = null;
-    this.eventError = null;
-    const event = this.events.find((e) => e.id === id);
-    if (!event) {
-      this.eventLoading = false;
-      return;
+  isEventSelected(id: string) {
+    return this.eventIds.includes(id);
+  }
+
+  async toggleEvent(id: string) {
+    if (this.eventIds.includes(id)) {
+      this.eventIds = this.eventIds.filter((e) => e !== id);
+    } else {
+      this.eventIds = [...this.eventIds, id];
+      await this.loadEvent(id);
     }
-    this.eventLoading = true;
+    this.persistFolderMeta();
+  }
+
+  async setEvents(ids: string[]) {
+    this.eventIds = ids.filter((id) => this.events.some((e) => e.id === id));
+    await Promise.all(this.eventIds.map((id) => this.loadEvent(id)));
+  }
+
+  async loadEvent(id: string, force = false) {
+    if ((!force && this.eventData.has(id)) || this.loadingEventIds.includes(id)) return;
+    const event = this.events.find((e) => e.id === id);
+    if (!event) return;
+    this.loadingEventIds = [...this.loadingEventIds, id];
+    const errors = new Map(this.eventErrors);
+    errors.delete(id);
+    this.eventErrors = errors;
     try {
       const data = await loadEventData(event);
-      if (this.eventId !== id) return; // user switched events meanwhile
-      this.model = buildMatchModel(data);
-      if (!this.model.windows.length) this.notify("info", "This event has no timed runs yet — there is nothing to match photos against.");
+      this.eventData = new Map(this.eventData).set(id, data);
     } catch (e) {
-      if (this.eventId === id) this.eventError = String((e as Error).message ?? e);
+      this.eventErrors = new Map(this.eventErrors).set(id, String((e as Error).message ?? e));
     } finally {
-      if (this.eventId === id) this.eventLoading = false;
+      this.loadingEventIds = this.loadingEventIds.filter((x) => x !== id);
     }
   }
 
+  // ---- filters -----------------------------------------------------------------------------
+
   toggleDiscipline(id: string) {
     this.disciplines = this.disciplines.includes(id) ? this.disciplines.filter((d) => d !== id) : [...this.disciplines, id];
+  }
+
+  toggleSuitColor(part: SuitPart, color: ColorName) {
+    const cur = this.suit[part] ?? [];
+    const next = cur.includes(color) ? cur.filter((c) => c !== color) : [...cur, color];
+    this.suit = { ...this.suit, [part]: next };
+  }
+
+  clearSuit(part?: SuitPart) {
+    if (!part) this.suit = {};
+    else this.suit = { ...this.suit, [part]: [] };
   }
 
   notify(kind: "info" | "error", text: string) {
@@ -367,10 +254,8 @@ class AppState {
       this.folder = dir;
       this.photos = sortPhotos(photos);
       this.selectedKey = null;
-      if (typeof this.#sidecar.offsetMs === "number") this.offsetMs = this.#sidecar.offsetMs;
-      if (this.#sidecar.eventId && this.#sidecar.eventId !== this.eventId && this.events.some((e) => e.id === this.#sidecar.eventId)) {
-        await this.selectEvent(this.#sidecar.eventId);
-      }
+      const saved = this.#sidecar.eventIds ?? (this.#sidecar.eventId ? [this.#sidecar.eventId] : []);
+      if (saved.length) await this.setEvents(saved);
       if (!photos.length) this.notify("info", "No images found in that folder.");
       this.afterImport(photos);
     } catch (e) {
@@ -380,43 +265,9 @@ class AppState {
     }
   }
 
-  /**
-   * Looks up timing for the events on the photos' dates; with no event chosen yet, selects the one
-   * whose runs happened while the photos were taken (or the only event on those dates).
-   */
-  private async autoSelectEvent() {
-    if (!this.captureRange || !this.events.length) return;
-    const candidates = this.eventsOnPhotoDates.slice(0, 20);
-    const missing = candidates.filter((e) => !this.timingByEvent.has(e.id));
-    if (missing.length) {
-      const spans = await Promise.all(missing.map((e) => eventTimingSpan(e.id).catch(() => null)));
-      const next = new Map(this.timingByEvent);
-      missing.forEach((e, i) => next.set(e.id, spans[i]));
-      this.timingByEvent = next;
-    }
-    if (this.eventId) return;
-    const during = this.eventsDuringPhotos;
-    const pick = during.length === 1 ? during[0] : candidates.length === 1 ? candidates[0] : null;
-    if (pick) {
-      const why = during.length === 1 ? "its runs match your photo times" : "the only event on your photos' dates";
-      this.notify("info", `Selected ${pick.name} — ${why}.`);
-      await this.selectEvent(pick.id);
-    } else if (candidates.length > 1) {
-      this.notify("info", `${candidates.length} events ran on your photos' dates — choose one.`);
-    }
-  }
-
-  /** Whether timing data of `e` overlaps the loaded photos (for labelling the event picker). */
-  isEventDuringPhotos(e: R4Event) {
-    return this.eventsDuringPhotos.includes(e);
-  }
-
   private afterImport(added: Photo[]) {
     if (!this.selectedKey && this.photos.length) this.selectedKey = this.photos[0].key;
-    const noTime = added.filter((p) => !p.wall).length;
-    if (noTime) this.notify("info", `${noTime} file(s) have no recording time in their metadata and can't be matched automatically.`);
     void this.loadPosters(added.filter((p) => p.kind === "video"));
-    void this.autoSelectEvent();
   }
 
   /** Grabs a preview frame for each clip, one at a time to keep decoding light. */
@@ -437,55 +288,11 @@ class AppState {
     this.folder = null;
   }
 
-  // ---- clock offset ------------------------------------------------------------------------
-
-  /** Re-derives the offset from photos the user already confirmed. */
-  fitToPicks() {
-    const model = this.model;
-    if (!model) return;
-    const pairs: { media: { startMs: number; durationMs: number }; window: NonNullable<ReturnType<typeof bestWindowFor>> }[] = [];
-    const picksByKey = new Map(this.photos.map((p) => [p.key, p.picks]));
-    let skipped = 0;
-    for (const span of this.#rawSpans()) {
-      const picks = picksByKey.get(span.key)!;
-      if (picks.length !== 1) continue; // single-rider photos/clips are unambiguous
-      const w = bestWindowFor(picks[0], { startMs: span.startMs + this.offsetMs, durationMs: span.durationMs }, model, FIT_MAX_GAP_MS);
-      if (w) pairs.push({ media: span, window: w });
-      else skipped++;
-    }
-    const off = fitOffsetToPicks(pairs, this.position, model);
-    const skippedNote = skipped
-      ? ` Skipped ${skipped} tagged file(s) whose rider has no run in the timing data within ${FIT_MAX_GAP_MS / 60_000} min.`
-      : "";
-    if (off === null) {
-      this.notify("info", `Tag a few photos or clips with a single rider first, then fit the clock to them.${skippedNote}`);
-      return;
-    }
-    this.offsetMs = off;
-    this.persistFolderMeta();
-    this.notify("info", `Clock offset fitted to ${pairs.length} tagged file(s).${skippedNote}`);
-  }
-
-  setOffset(ms: number) {
-    this.offsetMs = ms;
-    this.persistFolderMeta();
-  }
-
-  // ---- picking -----------------------------------------------------------------------------
-
-  isPicked(photo: Photo, profileId: string) {
-    return photo.picks.includes(profileId);
-  }
+  // ---- tagging -----------------------------------------------------------------------------
 
   async togglePick(photo: Photo, profileId: string) {
     const picks = photo.picks.includes(profileId) ? photo.picks.filter((p) => p !== profileId) : [...photo.picks, profileId];
     await this.setPicks(photo, picks);
-  }
-
-  async acceptSuggestions() {
-    const todo = this.photos.filter((p) => !p.picks.length && this.matches.get(p.key)?.suggestion);
-    for (const p of todo) await this.setPicks(p, [this.matches.get(p.key)!.suggestion!.profileId]);
-    this.notify("info", `Accepted ${todo.length} suggestion(s).`);
   }
 
   async setPicks(photo: Photo, picks: string[]) {
@@ -544,13 +351,9 @@ class AppState {
 
   private async writeSidecar() {
     if (!this.folder) return;
-    this.#sidecar.eventId = this.eventId ?? undefined;
-    this.#sidecar.offsetMs = this.offsetMs;
+    this.#sidecar.eventIds = this.eventIds;
+    delete this.#sidecar.eventId;
     await writeTextInFolder(this.folder, SIDECAR_NAME, JSON.stringify(this.#sidecar, null, 2));
-  }
-
-  seek(photo: Photo, ms: number) {
-    this.seekRequest = { key: photo.key, ms, nonce: (this.seekRequest?.nonce ?? 0) + 1 };
   }
 
   // ---- navigation --------------------------------------------------------------------------

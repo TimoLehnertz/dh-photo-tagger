@@ -171,3 +171,16 @@ Open questions / ideas:
 - Old branch `ccr-1882d3c1-l8q6bl` can be deleted.
 - User asked that the discipline filters be obviously toggleable; they're now checkbox chips.
   Confirm with the user that this is clear enough.
+
+## Redesign (2026-10-05): manual tagging with filters
+
+The user found the time matching unreliable (wrong camera clocks, missing sessions such as ASU26 skateboarding
+Q1B) and asked to drop it. The app no longer matches by time at all. Instead:
+
+- Several events can be selected; events whose dates cover the photo capture dates are highlighted.
+- The sidebar lists athletes of the selected events and narrows them with filters applied in order:
+  disciplines, race range (from/to in the schedule built from `qualifying_runs` sessions and bracket heats),
+  suit colours per body part, name/bib search. Logic in `src/lib/roster.ts` (`buildRoster`, `applyFilters`,
+  `colorNames`), tested in `roster.test.ts`.
+- Removed: clock offset, camera zone, match window, position, video time settings, suggestions, fit to tagged,
+  `matching.ts`. The sidecar now stores `eventIds` (old `eventId` is still read).
