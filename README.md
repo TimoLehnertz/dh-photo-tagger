@@ -35,7 +35,7 @@ Always the newest build of `main` (also linked from the web app):
    is selected for you. Untick the filter to see all events.
 2. Check the **event** and tick the **disciplines** to match (Skateboard / Inline / Street luge).
 3. Set the **Clock offset** to how far the camera clock was off: type it (e.g. `-34:24`) or use the
-   ±1h / ±1m / ±5s buttons. Camera clocks are often several minutes off. (The sample camera was about
+   ±1h buttons. Camera clocks are often several minutes off. (The sample camera was about
    34 min fast, so its offset is `-0:34:24`.) The offset is never guessed; it only changes when you set it.
 4. Click a photo to see it large (scroll or double-click to zoom) next to the riders who were on course at that
    moment. Click a rider, or press `1`–`9`, to tag them. `←`/`→` moves between photos; `Enter` accepts the

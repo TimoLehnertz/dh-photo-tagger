@@ -88,7 +88,7 @@ sessions. So:
 > inside a skateboarding run at UTC-3 with no correction. Sweeping clock offsets puts 25–26 of 31
 > photos inside runs at about **−35 min**, so this camera's clock was also ~35 min fast.
 > (An "Auto-detect" button that swept offsets for the best overlap existed until 2026-10-05; the user
-> asked for it to be removed so the offset is never guessed. It is now set by hand, ±1h/±1m/±5s.) Riders start every ~20–30 s on ~70 s runs, so 3–4 are on course at once.
+> asked for it to be removed so the offset is never guessed. It is now set by hand: typed, or ±1h buttons.) Riders start every ~20–30 s on ~70 s runs, so 3–4 are on course at once.
 > Timing alone can't tell the photographer's position or the exact offset within about ±1.5 min.
 > "Fit to tagged" refines the offset once the user has confirmed a few photos.
 >
