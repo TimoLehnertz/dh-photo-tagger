@@ -2,7 +2,7 @@ name: Desktop apps
 
 # Builds the macOS and Linux apps. On every push to main the results are published to the rolling
 # "latest" GitHub release under fixed names, which the web app links to:
-#   https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/<asset>
+#   https://github.com/TimoLehnertz/media-tagger/releases/latest/download/<asset>
 
 on:
   push:

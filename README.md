@@ -4,7 +4,7 @@ Match downhill race photos and videos to athletes using [r4wrun.com](https://r4w
 reads each photo's EXIF capture time (or each clip's recording time and length), compares it with when every
 rider was on course, and shows a ranked list of candidates (with their suit colours) so you can tag files quickly.
 
-- **Web:** https://timolehnertz.github.io/dh-photo-tagger/. Drop photos and videos (or a whole folder) in.
+- **Web:** https://timolehnertz.github.io/media-tagger/. Drop photos and videos (or a whole folder) in.
   Files never leave your computer. Tags are shown in the app and remembered in the browser; files are not renamed.
 - **Desktop app (macOS, Linux):** open a folder and every image and video in it is imported. Tagging appends
   the riders to the file name, e.g. `03_10_DOWNHILL_SKB_TIMETRIAL-0271_Enric-Umbert.jpg` or
@@ -14,13 +14,13 @@ rider was on course, and shows a ranked list of candidates (with their suit colo
 
 Always the newest build of `main` (also linked from the web app):
 
-- **macOS** (Apple silicon + Intel): [DH-Photo-Tagger-macOS.dmg](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-macOS.dmg).
+- **macOS** (Apple silicon + Intel): [DH-Photo-Tagger-macOS.dmg](https://github.com/TimoLehnertz/media-tagger/releases/latest/download/DH-Photo-Tagger-macOS.dmg).
   Not code-signed: on first launch right-click → *Open*, or run
   `xattr -dr com.apple.quarantine "/Applications/DH Photo Tagger.app"`.
-- **Linux**: [AppImage](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-Linux-x86_64.AppImage)
+- **Linux**: [AppImage](https://github.com/TimoLehnertz/media-tagger/releases/latest/download/DH-Photo-Tagger-Linux-x86_64.AppImage)
   (`chmod +x` it and run; needs `fuse2` on Arch),
-  [.deb](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-Linux-amd64.deb) for Debian/Ubuntu.
-- **Arch / Omarchy**: the [plain binary](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-Linux-x86_64.tar.gz)
+  [.deb](https://github.com/TimoLehnertz/media-tagger/releases/latest/download/DH-Photo-Tagger-Linux-amd64.deb) for Debian/Ubuntu.
+- **Arch / Omarchy**: the [plain binary](https://github.com/TimoLehnertz/media-tagger/releases/latest/download/DH-Photo-Tagger-Linux-x86_64.tar.gz)
   uses the system WebKitGTK, which avoids AppImage blank-window issues on Hyprland/Wayland:
   ```sh
   sudo pacman -S --needed webkit2gtk-4.1 gst-plugins-good gst-plugins-bad gst-libav
@@ -85,7 +85,7 @@ picks, the event and the clock offset. Re-tagging a photo then rewrites its name
 
 ```sh
 npm install
-npm run dev          # web version at http://localhost:5173/dh-photo-tagger/
+npm run dev          # web version at http://localhost:5173/media-tagger/
 npm test             # unit tests (test-images/exif.json, the sample clips, and an ASU26 API snapshot)
 npm run check        # svelte-check / TypeScript
 npm run tauri dev    # desktop app (needs Rust; on Linux also the WebKitGTK dev packages)

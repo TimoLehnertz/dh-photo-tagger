@@ -20,7 +20,7 @@ matching the photo's EXIF capture time against run timing from r4wrun.com.
   colors from the API) so the user can visually compare against the photo.
 - **Event picker:** user selects any r4wrun event (not hard-coded).
 - **Discipline filter:** skateboarding / inline / street_luge.
-- Repo: github.com/TimoLehnertz/dh-photo-tagger. Add GitHub Actions for:
+- Repo: github.com/TimoLehnertz/media-tagger. Add GitHub Actions for:
   1. Pages deploy of the web build.
   2. macOS Tauri build (`.dmg`) on a `macos-latest` runner (no Mac available locally).
 
@@ -121,7 +121,7 @@ Tauri 2 + Vite + (Svelte or React) + TypeScript. Keep all API/matching logic in 
 frontend (TS) so the web and Mac builds share it; Rust side only for folder scanning,
 reading files and renaming (`tauri-plugin-dialog`, `tauri-plugin-fs`). Detect runtime with
 `window.__TAURI_INTERNALS__` to switch between folder-mode and drag-and-drop mode.
-Set Vite `base` to `/dh-photo-tagger/` for Pages.
+Set Vite `base` to `/<repo name>/` for Pages (derived from `GITHUB_REPOSITORY`).
 
 ## Videos (added later)
 
@@ -145,7 +145,7 @@ All work is on `main` (last feature commit `c51000f`). Implemented: everything i
 plus videos, an event pre-filter, the match window and Linux builds. See README.md for usage.
 
 Live:
-- Web app: https://timolehnertz.github.io/dh-photo-tagger/ (Pages, source = GitHub Actions, deployed by `pages.yml`)
+- Web app: https://timolehnertz.github.io/media-tagger/ (Pages, source = GitHub Actions, deployed by `pages.yml`)
 - Desktop builds: `desktop.yml` publishes to the rolling `latest` release with fixed asset names
   (`DH-Photo-Tagger-macOS.dmg`, `-Linux-x86_64.AppImage`, `-Linux-amd64.deb`, `-Linux-x86_64.tar.gz`).
   The web app links to `releases/latest/download/<name>`.

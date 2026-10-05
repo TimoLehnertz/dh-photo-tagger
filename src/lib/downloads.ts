@@ -1,12 +1,14 @@
 // Desktop builds are published by .github/workflows/desktop.yml to a rolling "latest" GitHub release
 // with fixed asset names, so these links always point at the newest build of main.
-const BASE = "https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download";
+declare const __REPO__: string; // owner/name, injected by vite.config.ts
+
+const BASE = `https://github.com/${__REPO__}/releases/latest/download`;
 
 export const DOWNLOADS = {
   mac: `${BASE}/DH-Photo-Tagger-macOS.dmg`,
   linuxAppImage: `${BASE}/DH-Photo-Tagger-Linux-x86_64.AppImage`,
   linuxTarball: `${BASE}/DH-Photo-Tagger-Linux-x86_64.tar.gz`,
-  releasePage: "https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest",
+  releasePage: `https://github.com/${__REPO__}/releases/latest`,
 };
 
 export type DesktopOs = "mac" | "linux" | "other";
