@@ -138,3 +138,34 @@ Requirement: the app must also work with videos. Implementation:
 - `test-images/03_10_DOWNHILL_SKB_CLIP-0001.mp4` (moov first) and `CLIP-0002.MOV` (moov last)
   are small synthetic clips made from the sample photos with ffmpeg. Their `creation_time` is set
   to the camera clock (17:21:00 and 17:39:50), not real footage.
+
+## Handoff status (2026-10-05, end of first Claude Code cloud session)
+
+All work is on `main` (last feature commit `c51000f`). Implemented: everything in the spec above,
+plus videos, an event pre-filter, the match window and Linux builds. See README.md for usage.
+
+Live:
+- Web app: https://timolehnertz.github.io/dh-photo-tagger/ (Pages, source = GitHub Actions, deployed by `pages.yml`)
+- Desktop builds: `desktop.yml` publishes to the rolling `latest` release with fixed asset names
+  (`DH-Photo-Tagger-macOS.dmg`, `-Linux-x86_64.AppImage`, `-Linux-amd64.deb`, `-Linux-x86_64.tar.gz`).
+  The web app links to `releases/latest/download/<name>`.
+
+**Not yet verified:** the first run of `desktop.yml` (triggered by `c51000f`). The old `macos.yml`
+built fine on GitHub. Locally (Ubuntu container) the AppImage and .deb built, and the AppImage launched
+under Xvfb. Still to check: macOS + Linux jobs green, the `publish` job created the `latest`
+release (it force-pushes tag `latest`; needs `contents: write`, already set), and the download
+links in the web app resolve.
+
+Verified before handoff:
+- `npm test` (41 vitest tests), `npm run check`, `cargo test` (6 tests).
+- Browser end-to-end runs (Playwright, scripts not in repo):
+  - Web: photos + clips; auto-detected offset -0:34:24, 28/33 matched.
+  - Event filter: 42 events → 3 on 2026-10-04; ASU26 auto-selected via timing overlap.
+  - Mac mode with a faked Tauri IPC: renames, sidecar, reload, clip rename keeps playback position.
+
+Open questions / ideas:
+- Video timestamps from real Canon R6m2 footage are untested (default: mvhd read as camera clock;
+  UI toggle for UTC and start/end).
+- Old branch `ccr-1882d3c1-l8q6bl` can be deleted.
+- User asked that the discipline filters be obviously toggleable; they're now checkbox chips.
+  Confirm with the user that this is clear enough.
