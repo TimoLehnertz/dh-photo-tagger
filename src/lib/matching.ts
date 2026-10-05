@@ -41,9 +41,19 @@ export interface MatchOptions {
    * 1 = finish), or null when unknown (then any moment inside a run scores equally).
    */
   position: number | null;
-  /** How far (ms) the photo time may be from the expected moment before the score halves-ish (Gaussian σ). */
-  toleranceMs: number;
+  /**
+   * Match window: how long before a run starts / after it finishes (ms) a photo or clip still counts
+   * for that rider. With a known position, the window is around the expected passing moment instead.
+   * Anything outside the window is not a candidate.
+   */
+  beforeMs: number;
+  afterMs: number;
 }
+
+/** Score at the very edge of the match window; inside the run (or at the expected moment) it is 1. */
+const EDGE_SCORE = 0.1;
+/** With a known position the moment is exact, so a zero-width window would never match. */
+const MIN_POSITION_WINDOW_MS = 1000;
 
 export interface Candidate {
   profileId: string;
@@ -78,7 +88,6 @@ function gap(a: number, b: number, lo: number, hi: number): number {
   return 0;
 }
 
-const MIN_SCORE = 0.02;
 
 function median(values: number[]): number | null {
   if (!values.length) return null;
@@ -211,10 +220,21 @@ function expectedMoment(w: RunWindow, position: number, model: MatchModel): numb
     : expectedPassMs(w, position, model.splitFraction.get(w.discipline));
 }
 
+/** Linear falloff from 1 (deltaMs = 0) to EDGE_SCORE at the window edge; 0 outside the window. */
+export function windowScore(deltaMs: number, beforeMs: number, afterMs: number): number {
+  if (deltaMs === 0) return 1;
+  // deltaMs < 0: the photo/clip is earlier than the run (or than the expected passing moment).
+  const margin = deltaMs < 0 ? beforeMs : afterMs;
+  const d = Math.abs(deltaMs);
+  if (d > margin) return 0;
+  return 1 - (1 - EDGE_SCORE) * (d / margin);
+}
+
 function scoreWindow(a: number, b: number, w: RunWindow, opts: MatchOptions, model: MatchModel) {
-  const tol = Math.max(opts.toleranceMs, 1);
   let deltaMs: number;
   let moment: number; // the instant inside [a, b] that best shows this rider
+  let before = opts.beforeMs;
+  let after = opts.afterMs;
   if (opts.position === null) {
     deltaMs = gap(a, b, w.startMs, w.endMs);
     moment = Math.min(Math.max(w.startMs, a), b);
@@ -222,8 +242,10 @@ function scoreWindow(a: number, b: number, w: RunWindow, opts: MatchOptions, mod
     const e = expectedMoment(w, opts.position, model);
     deltaMs = gap(a, b, e, e);
     moment = Math.min(Math.max(e, a), b);
+    before = Math.max(before, MIN_POSITION_WINDOW_MS);
+    after = Math.max(after, MIN_POSITION_WINDOW_MS);
   }
-  return { score: Math.exp(-0.5 * (deltaMs / tol) ** 2), deltaMs, moment };
+  return { score: windowScore(deltaMs, before, after), deltaMs, moment };
 }
 
 /**
@@ -232,14 +254,14 @@ function scoreWindow(a: number, b: number, w: RunWindow, opts: MatchOptions, mod
  */
 export function rankCandidates(media: number | TimeSpan, model: MatchModel, opts: MatchOptions, limit = 12): Candidate[] {
   const [a, b] = spanOf(media);
-  const reach = opts.toleranceMs * 4;
+  const reach = Math.max(opts.beforeMs, opts.afterMs, MIN_POSITION_WINDOW_MS);
   const best = new Map<string, Candidate>();
   for (const w of model.windows) {
     if (w.startMs - reach > b) break; // windows are sorted by start
     if (w.endMs + reach < a) continue;
     if (!opts.disciplines.has(w.discipline)) continue;
     const { score, deltaMs, moment } = scoreWindow(a, b, w, opts, model);
-    if (score < MIN_SCORE) continue;
+    if (score <= 0) continue;
     const runFraction = (moment - w.startMs) / (w.endMs - w.startMs);
     const clipOffsetMs = moment - a;
     for (const profileId of w.profileIds) {

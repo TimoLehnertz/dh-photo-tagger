@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { EventData } from "./api";
-import { buildMatchModel, clearWinner, expectedPassMs, fitOffsetToPicks, rankCandidates, suggestOffset, type RunWindow } from "./matching";
+import { buildMatchModel, clearWinner, windowScore, expectedPassMs, fitOffsetToPicks, rankCandidates, suggestOffset, type RunWindow } from "./matching";
 import { parseExifDateTime, wallTimeToUtcMs } from "./time";
 import fixture from "./fixtures/asu26.json";
 import exif from "../../test-images/exif.json";
@@ -52,7 +52,7 @@ describe("suggestOffset", () => {
     expect(s.offsetMs).toBeGreaterThan(-39 * 60_000);
     expect(s.matched).toBeGreaterThanOrEqual(25);
     // Uncorrected, very few photos fall inside a run.
-    const inside = photoMs.filter((t) => rankCandidates(t, model, { disciplines: skate, position: null, toleranceMs: 1 }).some((c) => c.score > 0.99));
+    const inside = photoMs.filter((t) => rankCandidates(t, model, { disciplines: skate, position: null, beforeMs: 0, afterMs: 0 }).some((c) => c.score > 0.99));
     expect(inside.length).toBeLessThan(10);
   });
   it("recovers a synthetic offset", () => {
@@ -73,19 +73,19 @@ describe("rankCandidates", () => {
   it("ranks the rider whose run contains the photo first", () => {
     const w = model.windows.find((w) => w.discipline === "skateboarding" && w.splitMs !== null)!;
     const t = expectedPassMs(w, 0.5, model.splitFraction.get("skateboarding"));
-    const c = rankCandidates(t, model, { disciplines: skate, position: 0.5, toleranceMs: 3000 });
+    const c = rankCandidates(t, model, { disciplines: skate, position: 0.5, beforeMs: 3000, afterMs: 3000 });
     expect(c[0].profileId).toBe(w.profileIds[0]);
     expect(c[0].score).toBeCloseTo(1, 5);
     expect(c[0].runFraction).toBeGreaterThan(0.3);
   });
   it("lists several riders on course when position is unknown", () => {
     const s = suggestOffset(photoMs, model.windows, skate)!;
-    const counts = photoMs.map((t) => rankCandidates(t + s.offsetMs, model, { disciplines: skate, position: null, toleranceMs: 15_000 }).filter((c) => c.score > 0.99).length);
+    const counts = photoMs.map((t) => rankCandidates(t + s.offsetMs, model, { disciplines: skate, position: null, beforeMs: 15_000, afterMs: 15_000 }).filter((c) => c.score > 0.99).length);
     expect(Math.max(...counts)).toBeGreaterThanOrEqual(3);
   });
   it("respects the discipline filter", () => {
     const w = model.windows.find((w) => w.discipline === "inline")!;
-    expect(rankCandidates(w.startMs + 1000, model, { disciplines: skate, position: null, toleranceMs: 1000 }).every((c) => c.window.discipline === "skateboarding")).toBe(true);
+    expect(rankCandidates(w.startMs + 1000, model, { disciplines: skate, position: null, beforeMs: 1000, afterMs: 1000 }).every((c) => c.window.discipline === "skateboarding")).toBe(true);
   });
 });
 
@@ -115,7 +115,7 @@ describe("fitOffsetToPicks", () => {
 
 describe("video clips (time spans)", () => {
   const w = model.windows.find((w) => w.discipline === "skateboarding" && w.endMs - w.startMs > 60_000)!;
-  const opts = { disciplines: skate, position: null, toleranceMs: 2000 };
+  const opts = { disciplines: skate, position: null, beforeMs: 2000, afterMs: 2000 };
 
   it("matches a rider whose run overlaps any part of the clip", () => {
     // Clip starts 30 s before the run and ends 5 s into it.
@@ -155,5 +155,39 @@ describe("video clips (time spans)", () => {
     const start = w.endMs + 600_000 + off;
     expect(start + 20_000).toBeGreaterThanOrEqual(w.startMs);
     expect(start).toBeLessThanOrEqual(w.endMs);
+  });
+});
+
+describe("match window", () => {
+  const w = model.windows.find((w) => w.discipline === "skateboarding" && w.splitMs !== null)!;
+  const ids = (t: number, beforeMs: number, afterMs: number) =>
+    rankCandidates(t, model, { disciplines: skate, position: null, beforeMs, afterMs }, 100).filter((c) => c.window === w);
+
+  it("counts photos just before the start / after the finish only within the window", () => {
+    expect(ids(w.startMs - 8_000, 10_000, 0)).toHaveLength(1);
+    expect(ids(w.startMs - 8_000, 5_000, 30_000)).toHaveLength(0);
+    expect(ids(w.endMs + 20_000, 0, 30_000)).toHaveLength(1);
+    expect(ids(w.endMs + 20_000, 30_000, 10_000)).toHaveLength(0);
+  });
+
+  it("scores inside the run highest and falls off towards the window edge", () => {
+    expect(ids((w.startMs + w.endMs) / 2, 0, 0)[0].score).toBe(1);
+    const near = ids(w.endMs + 2_000, 10_000, 10_000)[0];
+    const far = ids(w.endMs + 9_000, 10_000, 10_000)[0];
+    expect(near.score).toBeGreaterThan(far.score);
+    expect(near.deltaMs).toBe(2_000);
+    expect(windowScore(-10_000, 10_000, 0)).toBeCloseTo(0.1);
+    expect(windowScore(-10_001, 10_000, 99_999)).toBe(0);
+    expect(windowScore(5_000, 99_999, 0)).toBe(0);
+  });
+
+  it("applies the window around the expected moment when the position is known", () => {
+    const e = expectedPassMs(w, 0.5, model.splitFraction.get("skateboarding"));
+    const opts = { disciplines: skate, position: 0.5, beforeMs: 2_000, afterMs: 6_000 };
+    const at = (t: number) => rankCandidates(t, model, opts, 100).find((c) => c.window === w);
+    expect(at(e - 1_500)).toBeDefined();
+    expect(at(e - 3_000)).toBeUndefined();
+    expect(at(e + 5_000)).toBeDefined();
+    expect(at(e + 7_000)).toBeUndefined();
   });
 });

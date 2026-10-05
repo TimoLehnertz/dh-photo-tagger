@@ -154,6 +154,24 @@ export async function loadEventData(event: R4Event, fetchImpl?: typeof fetch): P
   return { event, registrations, runs, splits, brackets };
 }
 
+/** First and last moment (UTC ms) with timing data for an event, or null if it has none yet. */
+export async function eventTimingSpan(eventId: string, fetchImpl?: typeof fetch): Promise<{ firstMs: number; lastMs: number } | null> {
+  const id = encodeURIComponent(eventId);
+  const base = `qualifying_runs?event_id=eq.${id}&select=created_at&limit=1&order=created_at`;
+  const [first, last, heats] = await Promise.all([
+    get<{ created_at: string }[]>(`${base}.asc`, fetchImpl),
+    get<{ created_at: string }[]>(`${base}.desc`, fetchImpl),
+    get<{ bracket_heats: { running_at: string | null; completed_at: string | null }[] }[]>(
+      `brackets?event_id=eq.${id}&select=bracket_heats(running_at,completed_at)`,
+      fetchImpl,
+    ).catch(() => []),
+  ]);
+  const times = [...first, ...last].map((r) => Date.parse(r.created_at));
+  for (const b of heats) for (const h of b.bracket_heats ?? []) if (h.running_at && h.completed_at) times.push(Date.parse(h.running_at), Date.parse(h.completed_at));
+  const valid = times.filter((t) => !Number.isNaN(t));
+  return valid.length ? { firstMs: Math.min(...valid), lastMs: Math.max(...valid) } : null;
+}
+
 export function eventUrl(event: R4Event): string {
   return `https://r4wrun.com/events/${event.slug}/riders`;
 }

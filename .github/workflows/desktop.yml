@@ -1,0 +1,112 @@
+name: Desktop apps
+
+# Builds the macOS and Linux apps. On every push to main the results are published to the rolling
+# "latest" GitHub release under fixed names, which the web app links to:
+#   https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/<asset>
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      - run: npm test
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build universal .dmg (Apple silicon + Intel)
+        run: npx tauri build --target universal-apple-darwin --bundles dmg
+      - name: Collect
+        run: |
+          mkdir -p out
+          cp src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg out/DH-Photo-Tagger-macOS.dmg
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*
+          if-no-files-found: error
+
+  linux:
+    # Oldest supported Ubuntu, so the binaries also run on older glibc; Arch is always newer.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libfuse2 file
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri -> target
+      - run: npm ci
+      - run: npm test
+      - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Build AppImage + .deb
+        run: npx tauri build --bundles appimage,deb
+      - name: Collect
+        run: |
+          mkdir -p out pkg/dh-photo-tagger
+          cp src-tauri/target/release/bundle/appimage/*.AppImage out/DH-Photo-Tagger-Linux-x86_64.AppImage
+          cp src-tauri/target/release/bundle/deb/*.deb out/DH-Photo-Tagger-Linux-amd64.deb
+          # Plain binary for Arch/Omarchy etc. (uses the system WebKitGTK)
+          cp src-tauri/target/release/dh-photo-tagger pkg/dh-photo-tagger/
+          cp src-tauri/icons/128x128.png pkg/dh-photo-tagger/dh-photo-tagger.png
+          cp packaging/linux/* pkg/dh-photo-tagger/
+          tar -C pkg -czf out/DH-Photo-Tagger-Linux-x86_64.tar.gz dh-photo-tagger
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: out/*
+          if-no-files-found: error
+
+  publish:
+    if: github.ref == 'refs/heads/main'
+    needs: [macos, linux]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+          merge-multiple: true
+      - name: Update the "latest" release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+          notes="Latest build of main ($(git log -1 --format='%h %s'))
+
+          - **macOS** (Apple silicon + Intel): DH-Photo-Tagger-macOS.dmg — not code-signed: right-click → Open on first launch.
+          - **Linux**: DH-Photo-Tagger-Linux-x86_64.AppImage (\`chmod +x\`, then run), .deb for Debian/Ubuntu, or the .tar.gz plain binary for Arch/Omarchy (see INSTALL.md inside)."
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "Latest build" --notes "$notes" --latest
+          else
+            gh release create latest --title "Latest build" --notes "$notes" --latest --target "$GITHUB_SHA"
+          fi
+          gh release upload latest out/* --clobber

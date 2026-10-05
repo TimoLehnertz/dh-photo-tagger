@@ -19,7 +19,8 @@
       const at = match.utcMs + app.playheadMs;
       return at >= c.window.startMs && at <= c.window.endMs;
     }
-    return Math.abs(app.playheadMs - c.clipOffsetMs) <= app.toleranceMs;
+    const d = app.playheadMs - c.clipOffsetMs; // < 0: rider still to come
+    return d < 0 ? -d <= Math.max(app.beforeMs, 1000) : d <= Math.max(app.afterMs, 1000);
   }
   let query = $state("");
 
@@ -146,7 +147,7 @@
       </ul>
     {:else if photo.wall}
       <p class="muted pad">
-        No rider was on course {isVideo ? "during this clip" : "at this time"}. Try “Auto-detect” for the clock offset, a wider tolerance, or other disciplines.
+        No rider was on course {isVideo ? "during this clip" : "at this time"}. Try “Auto-detect” for the clock offset, a wider match window, or other disciplines.
       </p>
     {/if}
 

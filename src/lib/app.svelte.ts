@@ -1,4 +1,4 @@
-import { DISCIPLINES, listEvents, loadEventData, type R4Event } from "./api";
+import { DISCIPLINES, eventTimingSpan, listEvents, loadEventData, type R4Event } from "./api";
 import {
   bestWindowFor,
   buildMatchModel,
@@ -14,6 +14,7 @@ import {
 import { athleteLabel, parseSidecar, resolveOriginals, SIDECAR_NAME, taggedFileName, type Sidecar } from "./naming";
 import { photoFromScan, photosFromFiles, sortPhotos, type Photo } from "./photos";
 import { fileSrc, isTauri, pickFolder, readTextInFolder, renameInFolder, scanFolder, writeTextInFolder } from "./platform";
+import { captureDateRange, eventsOverlapping } from "./events";
 import { isValidTimeZone, localTimeZone, wallTimeToUtcMs } from "./time";
 import { videoPoster } from "./video";
 
@@ -26,7 +27,9 @@ interface Settings {
   timeZone: string | null;
   offsetMs: number;
   position: number | null;
-  toleranceMs: number;
+  beforeMs: number;
+  afterMs: number;
+  onlyEventsOnPhotoDates: boolean;
   videoClock: VideoClock;
   videoStamp: VideoStamp;
 }
@@ -81,7 +84,11 @@ class AppState {
   timeZoneOverride = $state<string | null>(null);
   offsetMs = $state(0);
   position = $state<number | null>(null);
-  toleranceMs = $state(15_000);
+  /** Match window: how long before a run starts / after it ends a photo still counts. */
+  beforeMs = $state(10_000);
+  afterMs = $state(10_000);
+  /** Narrow the event list to events running on the loaded files' capture dates. */
+  onlyEventsOnPhotoDates = $state(true);
   videoClock = $state<VideoClock>("local");
   videoStamp = $state<VideoStamp>("start");
 
@@ -101,6 +108,37 @@ class AppState {
   #renameQueue: Promise<unknown> = Promise.resolve();
 
   event = $derived(this.events.find((e) => e.id === this.eventId) ?? null);
+
+  /** Capture dates (camera clock) of everything loaded, for narrowing the event list. */
+  captureRange = $derived(captureDateRange(this.photos.map((p) => p.wall)));
+  eventsOnPhotoDates = $derived(this.captureRange ? eventsOverlapping(this.events, this.captureRange) : []);
+  /** Timing span per event id (null = no timing yet), fetched for the date-matched events only. */
+  timingByEvent = $state.raw<Map<string, { firstMs: number; lastMs: number } | null>>(new Map());
+
+  /**
+   * Date-matched events whose timing data overlaps the photo times (read in that event's zone,
+   * ±6 h to allow for a wrong camera clock): the events the photos were actually taken at.
+   */
+  eventsDuringPhotos = $derived.by(() => {
+    const SLACK = 6 * 3600_000;
+    return this.eventsOnPhotoDates.filter((e) => {
+      const span = this.timingByEvent.get(e.id);
+      if (!span) return false;
+      const tz = isValidTimeZone(e.timezone) ? e.timezone : "UTC";
+      const times = this.photos.filter((p) => p.wall).map((p) => wallTimeToUtcMs(p.wall!, tz));
+      if (!times.length) return false;
+      return Math.min(...times) - SLACK <= span.lastMs && Math.max(...times) + SLACK >= span.firstMs;
+    });
+  });
+
+  /** What the event picker lists: the date-matched events when filtering applies (plus the current one). */
+  pickableEvents = $derived.by(() => {
+    if (!this.onlyEventsOnPhotoDates || !this.captureRange || !this.eventsOnPhotoDates.length) return this.events;
+    // Events with matching timing first.
+    const during = new Set(this.eventsDuringPhotos);
+    const list = [...this.eventsOnPhotoDates].sort((a, b) => Number(during.has(b)) - Number(during.has(a)));
+    return this.event && !list.includes(this.event) ? [this.event, ...list] : list;
+  });
 
   timeZone = $derived.by(() => {
     if (this.timeZoneOverride && isValidTimeZone(this.timeZoneOverride)) return this.timeZoneOverride;
@@ -138,7 +176,7 @@ class AppState {
   matches = $derived.by(() => {
     const out = new Map<string, PhotoMatch>();
     const model = this.model;
-    const opts = { disciplines: this.disciplineSet, position: this.position, toleranceMs: this.toleranceMs };
+    const opts = { disciplines: this.disciplineSet, position: this.position, beforeMs: this.beforeMs, afterMs: this.afterMs };
     for (const p of this.photos) {
       const raw = this.rawUtc.get(p.key);
       const utcMs = raw == null ? null : raw + this.offsetMs;
@@ -186,7 +224,9 @@ class AppState {
       timeZone: null,
       offsetMs: 0,
       position: null,
-      toleranceMs: 15_000,
+      beforeMs: 10_000,
+      afterMs: 10_000,
+      onlyEventsOnPhotoDates: true,
       videoClock: "local",
       videoStamp: "start",
     });
@@ -195,7 +235,9 @@ class AppState {
     this.timeZoneOverride = s.timeZone;
     this.offsetMs = s.offsetMs;
     this.position = s.position;
-    this.toleranceMs = s.toleranceMs;
+    this.beforeMs = s.beforeMs;
+    this.afterMs = s.afterMs;
+    this.onlyEventsOnPhotoDates = s.onlyEventsOnPhotoDates;
     this.videoClock = s.videoClock;
     this.videoStamp = s.videoStamp;
 
@@ -207,7 +249,9 @@ class AppState {
           timeZone: this.timeZoneOverride,
           offsetMs: this.offsetMs,
           position: this.position,
-          toleranceMs: this.toleranceMs,
+          beforeMs: this.beforeMs,
+          afterMs: this.afterMs,
+          onlyEventsOnPhotoDates: this.onlyEventsOnPhotoDates,
           videoClock: this.videoClock,
           videoStamp: this.videoStamp,
         } satisfies Settings);
@@ -225,7 +269,10 @@ class AppState {
     try {
       this.events = await listEvents();
       if (this.eventId && this.events.some((e) => e.id === this.eventId)) await this.selectEvent(this.eventId);
-      else this.eventId = null;
+      else {
+        this.eventId = null;
+        await this.autoSelectEvent();
+      }
     } catch (e) {
       this.eventsError = String((e as Error).message ?? e);
     } finally {
@@ -329,11 +376,43 @@ class AppState {
     }
   }
 
+  /**
+   * Looks up timing for the events on the photos' dates; with no event chosen yet, selects the one
+   * whose runs happened while the photos were taken (or the only event on those dates).
+   */
+  private async autoSelectEvent() {
+    if (!this.captureRange || !this.events.length) return;
+    const candidates = this.eventsOnPhotoDates.slice(0, 20);
+    const missing = candidates.filter((e) => !this.timingByEvent.has(e.id));
+    if (missing.length) {
+      const spans = await Promise.all(missing.map((e) => eventTimingSpan(e.id).catch(() => null)));
+      const next = new Map(this.timingByEvent);
+      missing.forEach((e, i) => next.set(e.id, spans[i]));
+      this.timingByEvent = next;
+    }
+    if (this.eventId) return;
+    const during = this.eventsDuringPhotos;
+    const pick = during.length === 1 ? during[0] : candidates.length === 1 ? candidates[0] : null;
+    if (pick) {
+      const why = during.length === 1 ? "its runs match your photo times" : "the only event on your photos' dates";
+      this.notify("info", `Selected ${pick.name} — ${why}.`);
+      await this.selectEvent(pick.id);
+    } else if (candidates.length > 1) {
+      this.notify("info", `${candidates.length} events ran on your photos' dates — choose one.`);
+    }
+  }
+
+  /** Whether timing data of `e` overlaps the loaded photos (for labelling the event picker). */
+  isEventDuringPhotos(e: R4Event) {
+    return this.eventsDuringPhotos.includes(e);
+  }
+
   private afterImport(added: Photo[]) {
     if (!this.selectedKey && this.photos.length) this.selectedKey = this.photos[0].key;
     const noTime = added.filter((p) => !p.wall).length;
     if (noTime) this.notify("info", `${noTime} file(s) have no recording time in their metadata and can't be matched automatically.`);
     void this.loadPosters(added.filter((p) => p.kind === "video"));
+    void this.autoSelectEvent();
   }
 
   /** Grabs a preview frame for each clip, one at a time to keep decoding light. */

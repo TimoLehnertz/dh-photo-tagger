@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=DH Photo Tagger
+Comment=Tag downhill race photos and videos with rider names from r4wrun.com timing
+Exec=dh-photo-tagger
+Icon=dh-photo-tagger
+Categories=Graphics;Photography;
+Terminal=false

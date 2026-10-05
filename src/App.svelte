@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { app } from "./lib/app.svelte";
+  import { DOWNLOADS } from "./lib/downloads";
   import { isTauri } from "./lib/platform";
   import CandidatePanel from "./components/CandidatePanel.svelte";
   import PhotoGrid from "./components/PhotoGrid.svelte";
@@ -117,7 +118,10 @@
       <div class="card">
         <h1>Tag downhill race photos and videos with rider names</h1>
         <ol>
-          <li>Choose the <strong>r4wrun event</strong> the photos are from{app.event ? ` (✓ ${app.event.name})` : ""}.</li>
+          <li>
+            Choose the <strong>r4wrun event</strong> the photos are from{app.event ? ` (✓ ${app.event.name})` : ""} — or just load
+            your files first: the list narrows to events on their dates and picks the event if only one matches.
+          </li>
           <li>
             {#if isTauri}
               <strong>Open the folder</strong> with your photos and videos. Picked riders are appended to the file names.
@@ -131,7 +135,16 @@
         {#if isTauri}
           <button class="primary" onclick={() => app.openFolder()}>Open folder…</button>
         {:else}
-          <p class="muted small">The web version can't rename files; tags are shown in the app and remembered in this browser. Use the Mac app to write names into file names.</p>
+          <p class="muted small">
+            The web version can't rename files; tags are shown in the app and remembered in this browser. To write rider
+            names into the file names, use the desktop app:
+          </p>
+          <p class="dl">
+            <a class="button" href={DOWNLOADS.mac}>⬇ macOS (.dmg)</a>
+            <a class="button" href={DOWNLOADS.linuxAppImage}>⬇ Linux (AppImage)</a>
+            <a class="small" href={DOWNLOADS.linuxTarball}>Linux binary (.tar.gz, Arch/Omarchy)</a>
+            <a class="small" href={DOWNLOADS.releasePage}>all downloads</a>
+          </p>
         {/if}
       </div>
     </main>
@@ -178,6 +191,10 @@
   .welcome ol { padding-left: 20px; line-height: 1.7; }
   .link { background: none; border: none; color: var(--accent); padding: 0; text-decoration: underline; }
   .small { font-size: 12px; }
+  .dl { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .dl a { color: var(--muted); }
+  .dl a.button { color: var(--text); text-decoration: none; background: var(--panel-2); border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; }
+  .dl a.button:hover { border-color: var(--accent); }
   .banner { padding: 8px 12px; font-size: 13px; display: flex; gap: 10px; align-items: center; }
   .banner.error { background: rgba(255, 92, 92, 0.12); color: var(--danger); }
   .dropzone {

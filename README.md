@@ -6,14 +6,34 @@ rider was on course, and shows a ranked list of candidates (with their suit colo
 
 - **Web:** https://timolehnertz.github.io/dh-photo-tagger/. Drop photos and videos (or a whole folder) in.
   Files never leave your computer. Tags are shown in the app and remembered in the browser; files are not renamed.
-- **macOS app:** open a folder and every image and video in it is imported. Tagging appends the riders to the
-  file name, e.g. `03_10_DOWNHILL_SKB_TIMETRIAL-0271_Enric-Umbert.jpg` or `…CLIP-0001_Enric-Umbert.mp4`. Download the `.dmg` from the latest
-  [macOS build](../../actions/workflows/macos.yml) run (artifact) or from Releases.
+- **Desktop app (macOS, Linux):** open a folder and every image and video in it is imported. Tagging appends
+  the riders to the file name, e.g. `03_10_DOWNHILL_SKB_TIMETRIAL-0271_Enric-Umbert.jpg` or
+  `…CLIP-0001_Enric-Umbert.mp4`.
+
+## Download
+
+Always the newest build of `main` (also linked from the web app):
+
+- **macOS** (Apple silicon + Intel): [DH-Photo-Tagger-macOS.dmg](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-macOS.dmg).
+  Not code-signed: on first launch right-click → *Open*, or run
+  `xattr -dr com.apple.quarantine "/Applications/DH Photo Tagger.app"`.
+- **Linux**: [AppImage](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-Linux-x86_64.AppImage)
+  (`chmod +x` it and run; needs `fuse2` on Arch),
+  [.deb](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-Linux-amd64.deb) for Debian/Ubuntu.
+- **Arch / Omarchy**: the [plain binary](https://github.com/TimoLehnertz/dh-photo-tagger/releases/latest/download/DH-Photo-Tagger-Linux-x86_64.tar.gz)
+  uses the system WebKitGTK, which avoids AppImage blank-window issues on Hyprland/Wayland:
+  ```sh
+  sudo pacman -S --needed webkit2gtk-4.1 gst-plugins-good gst-plugins-bad gst-libav
+  tar xzf DH-Photo-Tagger-Linux-x86_64.tar.gz && ./dh-photo-tagger/install.sh   # installs to ~/.local
+  ```
+  (GStreamer plugins are only needed for video playback.)
 
 ## Using it
 
-1. Pick the **event** and the **disciplines** you photographed or filmed.
-2. Load photos and/or videos.
+1. Load photos and/or videos. The event list narrows to r4wrun events on their capture dates. Events whose
+   timing data overlaps the photo times are marked "✓ timing matches your photos", and if exactly one does, it
+   is selected for you. Untick the filter to see all events.
+2. Check the **event** and tick the **disciplines** to match (Skateboard / Inline / Street luge).
 3. Press **Auto-detect** next to *Clock offset*. Camera clocks are often several minutes off. (The sample
    camera was about 35 min fast.) Auto-detect finds the offset that puts the most photos inside a run.
 4. Click a photo to see it large (scroll or double-click to zoom) next to the riders who were on course at that
@@ -22,7 +42,10 @@ rider was on course, and shows a ranked list of candidates (with their suit colo
 5. Once a few photos are tagged with a single rider, **Fit to tagged** refines the offset from them.
    If you know roughly where you stood on the course, set **Your position**. Riders are then ranked by when
    they should have passed you rather than just "on course".
-6. **Accept suggestions** tags every photo that has one clearly leading candidate.
+6. **Match window** sets how long before a run starts and after it finishes (in seconds) a photo still counts
+   as that rider. Defaults are 10 s / 10 s. With a position set, the window is around the moment the rider
+   should pass you. Riders inside the run score highest; the score falls off towards the edge of the window.
+7. **Accept suggestions** tags every photo that has one clearly leading candidate.
 
 ### Videos
 
@@ -48,8 +71,8 @@ often wrong. You can override the zone under *Camera zone*.
 - `qualifying_runs.created_at` is when the result was recorded, which is roughly the finish. So a run spans
   `[created_at − time_ms, created_at]`. `run_splits` (the first intermediate split) refine where a rider was
   mid-run when a position is set. Bracket heats with `running_at`/`completed_at` count too (all heat riders).
-- Each run gets a Gaussian score from how far the photo time is from the run (or from the expected passing
-  moment). Each rider keeps their best score.
+- Each run is scored by how far the photo time is from the run (or from the expected passing moment): 1 inside,
+  falling linearly to 0.1 at the edge of the match window, and excluded beyond it. Each rider keeps their best score.
 - In a time trial, several riders are on course at once, so the app shows a ranked list. It only pre-selects
   a rider who is clearly ahead.
 
@@ -64,6 +87,7 @@ npm run dev          # web version at http://localhost:5173/dh-photo-tagger/
 npm test             # unit tests (test-images/exif.json, the sample clips, and an ASU26 API snapshot)
 npm run check        # svelte-check / TypeScript
 npm run tauri dev    # desktop app (needs Rust; on Linux also the WebKitGTK dev packages)
+npm run tauri build -- --bundles appimage   # e.g. build the Linux AppImage locally
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
@@ -75,11 +99,10 @@ scans folders, reads EXIF, serves byte ranges of video files (for the TypeScript
 
 - `pages.yml`: on push to `main`, tests and builds the web app and deploys it to GitHub Pages. One-time
   setup: *Settings → Pages → Source: GitHub Actions*.
-- `macos.yml`: on push to `main`, a `v*` tag, or a manual run, builds a universal (Apple silicon + Intel)
-  `.dmg` on `macos-latest` and uploads it as an artifact. Tags also get a draft release.
+- `desktop.yml`: on push to `main` (or a manual run), builds the universal macOS `.dmg` and the Linux
+  AppImage, `.deb` and plain-binary tarball, then publishes them to the rolling `latest` release with fixed
+  file names.
 - `ci.yml`: type-checks, tests and builds the web app on pull requests and other branches.
 
-The app is not code-signed. On first launch, right-click → *Open*, or run
-`xattr -dr com.apple.quarantine "/Applications/DH Photo Tagger.app"`.
 
 See [NOTES.md](NOTES.md) for the original spec and API research.
