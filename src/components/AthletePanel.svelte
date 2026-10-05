@@ -16,6 +16,10 @@
   const LIMIT = 150;
 
   const result = $derived(app.filtered);
+  const scanNumbers = $derived.by(() => {
+    const scan = photo ? app.numberScans.get(photo.key) : undefined;
+    return scan?.status === "done" ? [...new Set(scan.hits.flatMap((h) => h.numbers))] : [];
+  });
   const shown = $derived(result.athletes.slice(0, LIMIT));
   const suitCount = $derived(Object.values(app.suit).reduce((n, cs) => n + (cs?.length ? 1 : 0), 0));
 
@@ -70,6 +74,17 @@
           <span class="muted small">Not tagged yet. Click an athlete below.</span>
         {/each}
       </div>
+      {#if scanNumbers.length}
+        <div class="nums small">
+          <span class="muted">Numbers:</span>
+          {#each scanNumbers as n (n)}
+            {@const who = app.athletesWithBib(n)}
+            <button class="num" class:known={who.length > 0} onclick={() => photo && app.pickNumber(photo, n)} title={who.length ? `Tag ${who.map((a) => a.name).join(" or ")}` : "Search for this number"}>
+              #{n}{who.length ? ` ${who.map((a) => a.name).join(" / ")}` : ""}
+            </button>
+          {/each}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -157,6 +172,9 @@
   .tags { display: flex; flex-wrap: wrap; gap: 4px; }
   .tag { background: var(--ok-soft); color: var(--ok); border-color: transparent; border-radius: 999px; padding: 2px 10px; font-size: 12px; }
   .tag:hover:not(:disabled) { background: var(--ok-soft); border-color: var(--ok); }
+  .nums { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+  .num { padding: 1px 8px; font-size: 12px; border-radius: 999px; color: var(--muted); }
+  .num.known { color: var(--accent); border-color: var(--accent); }
   .funnel { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
   .arrow { color: var(--muted); }
   section { padding: 0 12px; }

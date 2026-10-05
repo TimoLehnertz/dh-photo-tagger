@@ -46,6 +46,19 @@ Always the newest build of `main` (also linked from the web app):
    `Enter` in the search field tags the first match. `←`/`→` (or `Enter` outside the search) move between photos,
    and `/` jumps to the search.
 
+### Start numbers
+
+**Read start numbers** (top left of the photo, or tick *auto* to do it for every photo you open) finds the
+start numbers in the photo, e.g. the bib stickers on helmets, and draws a box around each one. Numbers that
+belong to an athlete of the selected events are highlighted with the name. Click a box (or the number in the
+sidebar) to search for that number; if exactly one athlete has it, they are tagged right away.
+
+It runs entirely on your computer: PaddleOCR (PP-OCRv4) text detection and recognition in WebAssembly
+(onnxruntime-web), in a background worker. The first use downloads about 30 MB of models and runtime, which the
+browser then caches. Expect about 1 s per photo at 1200 px; full-size camera files take a few seconds because
+they are also scanned in tiles so that small helmet stickers keep their detail. Stickers that are only a few
+pixels tall (downscaled exports) can't be read.
+
 On the Mac, a hidden `.dh-photo-tagger.json` in the photo folder records each file's original name, its tags
 and the selected events. Re-tagging a photo then rewrites its name cleanly.
 

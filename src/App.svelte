@@ -7,11 +7,32 @@
   import PhotoGrid from "./components/PhotoGrid.svelte";
   import Toolbar from "./components/Toolbar.svelte";
   import VideoPlayer from "./components/VideoPlayer.svelte";
-  import ZoomImage from "./components/ZoomImage.svelte";
+  import ZoomImage, { type Mark } from "./components/ZoomImage.svelte";
+  import NumberBar from "./components/NumberBar.svelte";
 
   let fileInput: HTMLInputElement;
   let dragDepth = $state(0);
   let panel = $state<ReturnType<typeof AthletePanel>>();
+
+  /** Detected start numbers of the selected photo, as clickable boxes. */
+  const marks = $derived.by((): Mark[] => {
+    const photo = app.selected;
+    const scan = photo && app.numberScans.get(photo.key);
+    if (!photo || scan?.status !== "done") return [];
+    return scan.hits
+      .filter((h) => h.numbers.length)
+      .map((h) => {
+        const known = h.numbers.map((n) => ({ n, who: app.athletesWithBib(n) })).sort((a, b) => b.who.length - a.who.length);
+        const best = known[0];
+        return {
+          ...h.box,
+          label: best.who.length ? `#${best.n} ${best.who.map((a) => a.lastName || a.name).join("/")}` : `#${best.n}`,
+          title: best.who.length ? `Tag ${best.who.map((a) => a.name).join(" or ")}` : `Search for #${best.n} (no athlete with this number in the selected events)`,
+          strong: best.who.length > 0,
+          onclick: () => app.pickNumber(photo, best.n),
+        };
+      });
+  });
 
   onMount(() => {
     app.loadEvents();
@@ -101,7 +122,8 @@
         {#if app.selected?.kind === "video"}
           <VideoPlayer photo={app.selected} />
         {:else if app.selected}
-          <ZoomImage src={app.selected.src} alt={app.selected.name} />
+          <ZoomImage src={app.selected.src} alt={app.selected.name} {marks} />
+          <NumberBar photo={app.selected} />
         {:else}
           <p class="muted center">Select a photo or clip.</p>
         {/if}
@@ -181,7 +203,7 @@
     grid-template-columns: minmax(240px, 26%) 1fr 400px;
   }
   .workspace > :global(*) { min-height: 0; min-width: 0; }
-  .viewer { border-left: 1px solid var(--border); min-height: 0; }
+  .viewer { border-left: 1px solid var(--border); min-height: 0; position: relative; }
   .center { text-align: center; margin-top: 40%; }
   .welcome { flex: 1; display: grid; place-items: center; padding: 24px; }
   .welcome .card { max-width: 560px; background: var(--panel); border: 1px dashed var(--border); border-radius: 14px; padding: 28px 32px; }

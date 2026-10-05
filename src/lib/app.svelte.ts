@@ -5,11 +5,17 @@ import { photoFromScan, photosFromFiles, sortPhotos, type Photo } from "./photos
 import { fileSrc, isTauri, pickFolder, readTextInFolder, renameInFolder, scanFolder, writeTextInFolder } from "./platform";
 import { captureDateRange, eventsOverlapping } from "./events";
 import { videoPoster } from "./video";
+import type { TextHit } from "./bibs";
+import { readPhotoText } from "./bibReader";
+
+/** Start-number reading state of one photo. */
+export type NumberScan = { status: "running"; progress: number } | { status: "done"; hits: TextHit[] } | { status: "error"; error: string };
 
 const SETTINGS_KEY = "dhpt:settings";
 const PICKS_KEY = "dhpt:picks";
 
 interface Settings {
+  autoReadNumbers: boolean;
   eventIds: string[];
   disciplines: string[];
   raceFrom: string | null;
@@ -53,6 +59,10 @@ class AppState {
   raceTo = $state<string | null>(null);
   suit = $state<Partial<Record<SuitPart, ColorName[]>>>({});
   query = $state("");
+
+  /** Read start numbers automatically for the photo being viewed. */
+  autoReadNumbers = $state(false);
+  numberScans = $state.raw<Map<string, NumberScan>>(new Map());
 
   photos = $state<Photo[]>([]);
   selectedKey = $state<string | null>(null);
@@ -101,11 +111,13 @@ class AppState {
 
   constructor() {
     const s = loadJson<Settings & { eventId?: string | null }>(SETTINGS_KEY, {
+      autoReadNumbers: false,
       eventIds: [],
       disciplines: DISCIPLINES.map((d) => d.id),
       raceFrom: null,
       raceTo: null,
     });
+    this.autoReadNumbers = s.autoReadNumbers;
     this.eventIds = s.eventIds?.length ? s.eventIds : s.eventId ? [s.eventId] : [];
     this.disciplines = s.disciplines;
     this.raceFrom = s.raceFrom;
@@ -113,7 +125,12 @@ class AppState {
 
     $effect.root(() => {
       $effect(() => {
+        const p = this.selected;
+        if (this.autoReadNumbers && p && p.kind !== "video" && !this.numberScans.has(p.key)) void this.readNumbers(p);
+      });
+      $effect(() => {
         saveJson(SETTINGS_KEY, {
+          autoReadNumbers: this.autoReadNumbers,
           eventIds: this.eventIds,
           disciplines: this.disciplines,
           raceFrom: this.raceFrom,
@@ -286,6 +303,42 @@ class AppState {
     this.photos = [];
     this.selectedKey = null;
     this.folder = null;
+  }
+
+  // ---- start numbers ---------------------------------------------------------------------
+
+  private setScan(key: string, scan: NumberScan) {
+    this.numberScans = new Map(this.numberScans).set(key, scan);
+  }
+
+  /** Reads the text in a photo locally and keeps the start-number candidates. */
+  async readNumbers(photo: Photo, force = false) {
+    const cur = this.numberScans.get(photo.key);
+    if (cur?.status === "running" || (cur?.status === "done" && !force)) return;
+    const key = photo.key;
+    this.setScan(key, { status: "running", progress: 0 });
+    try {
+      const hits = await readPhotoText(photo, (progress) => this.setScan(key, { status: "running", progress }));
+      this.setScan(key, { status: "done", hits });
+    } catch (e) {
+      this.setScan(key, { status: "error", error: String((e as Error).message ?? e) });
+    }
+  }
+
+  /** Athletes of the selected events (and disciplines) wearing this start number. */
+  athletesWithBib(bib: string): Athlete[] {
+    const out: Athlete[] = [];
+    for (const a of this.roster.athletes.values()) {
+      if (a.registrations.some((r) => r.bib === bib && this.disciplines.includes(r.discipline))) out.push(a);
+    }
+    return out;
+  }
+
+  /** Clicking a detected number: search for it, and tag the athlete right away when it is unambiguous. */
+  async pickNumber(photo: Photo, bib: string) {
+    this.query = `#${bib}`;
+    const found = this.athletesWithBib(bib);
+    if (found.length === 1 && !photo.picks.includes(found[0].profileId)) await this.togglePick(photo, found[0].profileId);
   }
 
   // ---- tagging -----------------------------------------------------------------------------

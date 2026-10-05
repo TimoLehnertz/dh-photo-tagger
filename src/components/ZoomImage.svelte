@@ -1,5 +1,28 @@
+<script lang="ts" module>
+  /** A clickable region on the image, in the image's own pixels. */
+  export interface Mark {
+    x: number;
+    y: number;
+    w: number;
+    h: number;
+    label: string;
+    title: string;
+    strong: boolean;
+    onclick: () => void;
+  }
+</script>
+
 <script lang="ts">
-  let { src, alt = "" }: { src: string; alt?: string } = $props();
+  let { src, alt = "", marks = [] }: { src: string; alt?: string; marks?: Mark[] } = $props();
+
+  let natural = $state({ w: 0, h: 0 });
+  let box = $state({ w: 0, h: 0 });
+  /** Size of the image when fitted into the view (before zooming). */
+  const fitted = $derived.by(() => {
+    if (!natural.w || !box.w) return null;
+    const k = Math.min(box.w / natural.w, box.h / natural.h);
+    return { w: natural.w * k, h: natural.h * k };
+  });
 
   let scale = $state(1);
   let x = $state(0);
@@ -10,6 +33,7 @@
 
   $effect(() => {
     void src;
+    natural = { w: 0, h: 0 };
     reset();
   });
 
@@ -61,6 +85,8 @@
   class:zoomed={scale > 1}
   class:dragging
   bind:this={container}
+  bind:clientWidth={box.w}
+  bind:clientHeight={box.h}
   onwheel={onWheel}
   onpointerdown={onDown}
   onpointermove={onMove}
@@ -70,7 +96,31 @@
   role="img"
   aria-label={alt}
 >
-  <img {src} {alt} draggable="false" style:transform={`translate(${x}px, ${y}px) scale(${scale})`} />
+  <div
+    class="stage"
+    style:width={fitted ? `${fitted.w}px` : undefined}
+    style:height={fitted ? `${fitted.h}px` : undefined}
+    style:transform={`translate(${x}px, ${y}px) scale(${scale})`}
+  >
+    <img {src} {alt} draggable="false" onload={(e) => { const i = e.currentTarget as HTMLImageElement; natural = { w: i.naturalWidth, h: i.naturalHeight }; }} />
+    {#if fitted}
+      {#each marks as m, i (i)}
+        <button
+          class="mark"
+          class:strong={m.strong}
+          title={m.title}
+          style:left={`${(m.x / natural.w) * 100}%`}
+          style:top={`${(m.y / natural.h) * 100}%`}
+          style:width={`${(m.w / natural.w) * 100}%`}
+          style:height={`${(m.h / natural.h) * 100}%`}
+          style:--inv={1 / scale}
+          onpointerdown={(e) => e.stopPropagation()}
+          ondblclick={(e) => e.stopPropagation()}
+          onclick={(e) => { e.stopPropagation(); m.onclick(); }}
+        ><span class="label">{m.label}</span></button>
+      {/each}
+    {/if}
+  </div>
   <div class="controls">
     <button title="Zoom out" onclick={() => { const r = container.getBoundingClientRect(); zoomAt(r.left + r.width / 2, r.top + r.height / 2, 1 / 1.5); }}>−</button>
     <span class="mono">{Math.round(scale * 100)}%</span>
@@ -94,13 +144,39 @@
   }
   .zoomed { cursor: grab; }
   .dragging { cursor: grabbing; }
-  img {
+  .stage {
+    position: relative;
     max-width: 100%;
     max-height: 100%;
-    object-fit: contain;
     transform-origin: center;
     will-change: transform;
   }
+  .stage img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  .mark {
+    position: absolute;
+    padding: 0;
+    border: calc(2px * var(--inv)) solid rgba(255, 255, 255, 0.55);
+    border-radius: calc(4px * var(--inv));
+    background: rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+  }
+  .mark.strong { border-color: var(--accent); background: rgba(255, 122, 26, 0.18); }
+  .mark:hover { border-color: var(--ok); }
+  .mark .label {
+    position: absolute;
+    left: 50%;
+    bottom: 100%;
+    transform: translate(-50%, calc(-2px * var(--inv))) scale(var(--inv));
+    transform-origin: bottom center;
+    background: rgba(15, 17, 21, 0.9);
+    color: var(--text);
+    border: 1px solid currentColor;
+    border-radius: 4px;
+    padding: 0 5px;
+    font-size: 12px;
+    white-space: nowrap;
+  }
+  .mark.strong .label { color: var(--accent); }
   .controls {
     position: absolute;
     right: 10px;

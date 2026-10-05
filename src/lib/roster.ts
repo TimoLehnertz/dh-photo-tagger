@@ -263,8 +263,10 @@ function bibNumber(a: Athlete): number {
 }
 
 function matchesQuery(a: Athlete, q: string): boolean {
+  // "#343" is an exact start number, "34" any number starting with it.
+  const exact = q.startsWith("#");
   const bib = q.replace(/^#/, "");
-  if (/^\d+$/.test(bib)) return a.registrations.some((r) => r.bib?.startsWith(bib));
+  if (/^\d+$/.test(bib)) return a.registrations.some((r) => (exact ? r.bib === bib : r.bib?.startsWith(bib)));
   const words = q.toLowerCase().split(/\s+/).filter(Boolean);
   const hay = [a.name, a.username ?? "", a.country ?? ""].join(" ").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
   return words.every((w) => hay.includes(w.normalize("NFD").replace(/[̀-ͯ]/g, "")));

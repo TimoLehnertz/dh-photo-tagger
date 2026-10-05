@@ -184,3 +184,15 @@ Q1B) and asked to drop it. The app no longer matches by time at all. Instead:
   `colorNames`), tested in `roster.test.ts`.
 - Removed: clock offset, camera zone, match window, position, video time settings, suggestions, fit to tagged,
   `matching.ts`. The sidecar now stores `eventIds` (old `eventId` is still read).
+
+## Start-number reading (2026-10-05)
+
+Local OCR: `src/lib/bibs.ts` runs PaddleOCR PP-OCRv4 det + rec ONNX models (npm `@gutenye/ocr-models`, used only
+for the model files) with `onnxruntime-web/wasm` in a worker (`bibs.worker.ts`, `bibReader.ts`). Own DB
+post-processing (thresholded map, connected components, unclip) and CTC decoding, no OpenCV. Models are served
+from `<base>/ocr/` by a small plugin in `vite.config.ts`. Digits are extracted by `numbersIn` and only offered
+when the reading confidence is >= 0.5; the UI marks numbers that are a registered bib.
+
+Findings on the 31 downscaled samples (1200 px): bibs are small helmet stickers. "386" (Owen Fox) in 0380 is read
+at 0.99; stickers of ~20 px (0360 "317", 0549) are not legible at that size, and upscaling only adds noise. Real
+recall needs a test on full-size originals, where large images are also scanned in tiles.
