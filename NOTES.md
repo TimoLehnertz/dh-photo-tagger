@@ -68,10 +68,13 @@ ASU26 qualifying windows (UTC, from `qualifying_runs.created_at`):
 2026-10-04 skateboarding q1a 16:53→18:25  q2 19:32→20:21  q3 21:11→21:42
 ```
 
-## Test photos (local only, NOT committed)
+## Test photos
 
-31 JPEGs in `test images/` on the user's machine (`03_10_DOWNHILL_SKB_TIMETRIAL-*.jpg`,
-Canon EOS R6m2, ~1.4 MB each). They were deliberately left out of the public repo.
+`test-images/` holds the 31 sample photos (`03_10_DOWNHILL_SKB_TIMETRIAL-*.jpg`, Canon EOS
+R6m2), downscaled to max 1200px with EXIF preserved (originals are ~1.4 MB each and stay
+on the user's machine). Two originals had a `.JPG` extension; the copies use `.jpg` — the
+app must handle both cases. `test-images/exif.json` has the extracted EXIF per file, for
+unit-testing the matching without decoding images.
 
 EXIF: `DateTimeOriginal` `2026:10:04 14:48:07` … `17:40:02`, `OffsetTimeOriginal -08:00`,
 `SubSecTimeOriginal` present. Filenames say `03_10` but EXIF says 10-04.
