@@ -133,6 +133,7 @@
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs + 5_000)} title="+5 seconds">+5s</button>
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs + 60_000)} title="+1 minute">+1m</button>
       <button class="nudge" onclick={() => app.setOffset(app.offsetMs + 3_600_000)} title="+1 hour">+1h</button>
+      <button class="nudge" onclick={() => app.setOffset(0)} disabled={app.offsetMs === 0} title="Reset the offset to 0:00:00">Reset</button>
     </label>
     <button onclick={() => app.fitToPicks()} disabled={!app.model || !app.stats.tagged} title="Refine the offset using the photos you already tagged with one rider">Fit to tagged</button>
 

@@ -23,7 +23,6 @@ interface Settings {
   eventId: string | null;
   disciplines: string[];
   timeZone: string | null;
-  offsetMs: number;
   position: number | null;
   beforeMs: number;
   afterMs: number;
@@ -228,7 +227,6 @@ class AppState {
       eventId: null,
       disciplines: DISCIPLINES.map((d) => d.id),
       timeZone: null,
-      offsetMs: 0,
       position: null,
       beforeMs: 10_000,
       afterMs: 10_000,
@@ -239,7 +237,8 @@ class AppState {
     this.eventId = s.eventId;
     this.disciplines = s.disciplines;
     this.timeZoneOverride = s.timeZone;
-    this.offsetMs = s.offsetMs;
+    // The clock offset is not restored from browser storage: it belongs to one set of photos and is
+    // always set by hand. The desktop app keeps it per folder in the sidecar instead.
     this.position = s.position;
     this.beforeMs = s.beforeMs;
     this.afterMs = s.afterMs;
@@ -253,7 +252,6 @@ class AppState {
           eventId: this.eventId,
           disciplines: this.disciplines,
           timeZone: this.timeZoneOverride,
-          offsetMs: this.offsetMs,
           position: this.position,
           beforeMs: this.beforeMs,
           afterMs: this.afterMs,
