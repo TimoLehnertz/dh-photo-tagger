@@ -59,6 +59,10 @@
           {#if m?.utcMs != null}
             <span class="time mono">{formatClock(m.utcMs, app.timeZone)}</span>
           {/if}
+          {#if app.model && m?.utcMs != null}
+            {@const n = m.candidateCount}
+            <span class="riders mono" class:zero={!n} title="{n} athlete{n === 1 ? '' : 's'} on course at this moment">👤 {n}</span>
+          {/if}
         </div>
         <div class="name">{p.name}</div>
         <div class="tags">
@@ -67,7 +71,7 @@
           {:else if m?.suggestion}
             <span class="tag suggested">{app.athlete(m.suggestion.profileId)?.name}?</span>
           {:else if m?.candidates.length}
-            <span class="tag">{m.candidates.length} candidate{m.candidates.length === 1 ? "" : "s"}</span>
+            <span class="tag">{m.candidateCount} candidate{m.candidateCount === 1 ? "" : "s"}</span>
           {:else if !p.wall}
             <span class="tag warn">no {p.kind === "video" ? "recording" : "capture"} time</span>
           {:else if app.model}
@@ -117,6 +121,8 @@
   .thumb img { width: 100%; height: 100%; object-fit: cover; }
   .time { position: absolute; left: 4px; bottom: 4px; background: rgba(0, 0, 0, 0.65); padding: 1px 4px; border-radius: 4px; font-size: 11px; }
   .badge { position: absolute; right: 4px; top: 4px; background: rgba(0, 0, 0, 0.7); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .riders { position: absolute; right: 4px; bottom: 4px; background: rgba(0, 0, 0, 0.65); padding: 1px 5px; border-radius: 4px; font-size: 11px; }
+  .riders.zero { opacity: 0.55; }
   .film { font-size: 34px; opacity: 0.6; }
   .name { font-size: 11px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tags { display: flex; flex-wrap: wrap; gap: 3px; min-height: 18px; }

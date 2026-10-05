@@ -66,6 +66,8 @@ export interface PhotoMatch {
   utcMs: number | null;
   durationMs: number;
   candidates: Candidate[];
+  /** Riders in the match window before `candidates` is cut to the display limit. */
+  candidateCount: number;
   suggestion: Candidate | null;
 }
 
@@ -183,8 +185,9 @@ class AppState {
       const durationMs = p.durationMs ?? 0;
       // Long clips can show many riders, so list more of them.
       const limit = p.kind === "video" ? 40 : 12;
-      const candidates = model && utcMs != null ? rankCandidates({ startMs: utcMs, durationMs }, model, opts, limit) : [];
-      out.set(p.key, { utcMs, durationMs, candidates, suggestion: clearWinner(candidates) });
+      const all = model && utcMs != null ? rankCandidates({ startMs: utcMs, durationMs }, model, opts, Infinity) : [];
+      const candidates = all.slice(0, limit);
+      out.set(p.key, { utcMs, durationMs, candidates, candidateCount: all.length, suggestion: clearWinner(candidates) });
     }
     return out;
   });
