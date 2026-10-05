@@ -241,7 +241,8 @@ export async function readText(src: Source, onProgress?: (done: number, total: n
   const { w, h } = sizeOf(src);
   const crops: Box[] = [{ x: 0, y: 0, w, h }];
   if (Math.max(w, h) > DET_SIZE * TILE_FROM) {
-    const tiles = Math.min(4, Math.ceil(Math.max(w, h) / (DET_SIZE * 1.5)) + 1);
+    // About two detector widths per tile is enough for helmet stickers (~75 px tall in a 24 MP frame).
+    const tiles = Math.min(3, Math.ceil(Math.max(w, h) / (DET_SIZE * 2)));
     const tw = w / tiles;
     const th = h / tiles;
     for (let i = 0; i < tiles; i++) {
